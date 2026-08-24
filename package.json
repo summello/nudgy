@@ -12,14 +12,16 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.43.0",
     "clsx": "^2.1.1",
     "idb": "^8.0.0",
     "next": "14.2.0",
-    "pdf-parse": "^1.1.1",
+    "pdf-parse": "^1.1.4",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "sharp": "^0.33.0",
+    "sharp": "^0.33.5",
+    "uuid": "^14.0.2",
     "zod": "^3.22.0"
   },
   "devDependencies": {
@@ -29,6 +31,7 @@
     "@types/pdf-parse": "^1.1.4",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.0",

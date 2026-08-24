@@ -41,7 +41,7 @@ export interface ReminderContext {
 }
 
 export interface PaymentMethod {
-  id: string;
+  id?: string;
   kind: PaymentMethodKind;
   value: string;
   label?: string;

@@ -77,6 +77,7 @@ export const reminderDraftSchema = z.object({
 export type ReminderDraft = z.infer<typeof reminderDraftSchema>;
 
 export const generationInputSchema = z.object({
+  invoiceId: z.string().uuid(),
   invoice: confirmedInvoiceSchema,
   tone: z.enum(["friendly", "firm", "final_notice"]),
   context: reminderContextSchema.optional(),
