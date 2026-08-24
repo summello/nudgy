@@ -1,7 +1,8 @@
 "use server";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { generateOperationId } from "@/lib/utils";
+import { generateOperationId, getDaysOverdue } from "@/lib/utils";
+import { ConfirmedInvoice } from "@/types";
 
 export async function getInvoices(filter: "overdue" | "paid" | "all" = "overdue") {
   const supabase = createServerSupabaseClient();
@@ -218,4 +219,44 @@ export async function getInvoiceDetail(invoiceId: string) {
       paymentMethod,
     }
   };
+}
+
+export async function confirmInvoice(input: ConfirmedInvoice & { sourceObjectPath?: string; sourceSha256?: string; extractionMethod?: string }) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
+  }
+
+  const daysOverdue = input.dueDate ? getDaysOverdue(input.dueDate) : 0;
+  const status = daysOverdue <= 0 ? "needs_review" : "overdue";
+
+  const { data: invoice, error } = await supabase
+    .from("invoices")
+    .insert({
+      owner_id: user.id,
+      client_name: input.clientName,
+      contact_name: input.contactName || null,
+      contact_phone_e164: input.contactPhoneE164 || null,
+      invoice_number: input.invoiceNumber || null,
+      amount_minor: input.amountMinor,
+      currency: input.currency,
+      issue_date: input.issueDate || null,
+      due_date: input.dueDate,
+      status,
+      source_object_path: input.sourceObjectPath || null,
+      source_sha256: input.sourceSha256 || null,
+      extraction_method: input.extractionMethod || null,
+      confirmed_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error || !invoice) {
+    console.error("Confirm invoice error:", error);
+    return { success: false, error: "Failed to save invoice", code: "DB_ERROR" };
+  }
+
+  return { success: true, invoiceId: invoice.id };
 }

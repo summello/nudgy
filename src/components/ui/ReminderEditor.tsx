@@ -145,7 +145,14 @@ export function ReminderEditor({
             <Button variant="primary" onClick={onCopyEmail} loading={copying} className="flex-1">
               Copy Email
             </Button>
-            <Button variant="secondary" onClick={onRegenerate} loading={regenerating} disabled={emailEdited && !confirm("Regenerate will overwrite your edits. Continue?")}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (emailEdited && !confirm("Regenerate will overwrite your edits. Continue?")) return;
+                onRegenerate();
+              }}
+              loading={regenerating}
+            >
               Regenerate
             </Button>
           </div>
@@ -183,7 +190,14 @@ export function ReminderEditor({
             <Button variant="secondary" onClick={onCopyWhatsApp} loading={copying}>
               Copy WhatsApp
             </Button>
-            <Button variant="secondary" onClick={onRegenerate} loading={regenerating} disabled={whatsappEdited && !confirm("Regenerate will overwrite your edits. Continue?")}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (whatsappEdited && !confirm("Regenerate will overwrite your edits. Continue?")) return;
+                onRegenerate();
+              }}
+              loading={regenerating}
+            >
               Regenerate
             </Button>
           </div>

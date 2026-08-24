@@ -38,12 +38,30 @@ export function formatDateLong(dateString: string): string {
   });
 }
 
+const INVOICE_TIMEZONE = "Asia/Kolkata";
+const DAY_MS = 1000 * 60 * 60 * 24;
+
+function toUTCDay(dateString: string): number {
+  const [y, m, d] = dateString.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
+function todayInTimezone(timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const p = Object.fromEntries(parts.map((x) => [x.type, x.value]));
+  return Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day));
+}
+
 export function getDaysOverdue(dueDate: string): number {
-  const due = new Date(dueDate + "T00:00:00");
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diffTime = today.getTime() - due.getTime();
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  if (!isValidDate(dueDate)) return 0;
+  const dueUTC = toUTCDay(dueDate);
+  const todayUTC = todayInTimezone(INVOICE_TIMEZONE);
+  return Math.round((todayUTC - dueUTC) / DAY_MS);
 }
 
 export function getToneRecommendation(daysOverdue: number, priorReminders: number): "friendly" | "firm" | "final_notice" {

@@ -61,6 +61,8 @@ function NewInvoicePageContent() {
   const [upiError, setUpiError] = useState("");
   const [urlError, setUrlError] = useState("");
   const [phoneError, setPhoneError] = useState("");
+  const [upiValue, setUpiValue] = useState("");
+  const [urlValue, setUrlValue] = useState("");
   const [paymentKind, setPaymentKind] = useState<"upi" | "payment_url" | "none">("none");
   const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const [reminderId, setReminderId] = useState<string | null>(null);
@@ -190,7 +192,7 @@ function NewInvoicePageContent() {
     }
   }, [confirmed, step, draft, tone, context, paymentMethod]);
 
-  const handleConfirmDetails = useCallback(() => {
+  const handleConfirmDetails = useCallback(async () => {
     if (!confirmed) return;
 
     const validation = confirmedInvoiceSchema.safeParse(confirmed);
@@ -205,11 +207,28 @@ function NewInvoicePageContent() {
       return;
     }
 
+    // Persist the confirmed invoice so generation has a row to reference
+    try {
+      const response = await fetch("/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(confirmed),
+      });
+      const result = await response.json();
+      if (result.success && result.invoiceId) {
+        setInvoiceId(result.invoiceId);
+      } else {
+        addToast("Could not save the invoice. You can still continue, but it won't persist.", "error");
+      }
+    } catch {
+      addToast("Could not save the invoice. You can still continue, but it won't persist.", "error");
+    }
+
     const priorCount = context.priorReminderCount || 0;
     const recommended = getToneRecommendation(daysOverdue, priorCount);
     setTone(recommended);
     setStep(3);
-  }, [confirmed, context, addToast]);
+  }, [confirmed, context, addToast]);;
 
   const handleToneSelect = useCallback((t: Tone) => {
     setTone(t);
@@ -228,25 +247,23 @@ function NewInvoicePageContent() {
 
   const handlePaymentMethodSubmit = useCallback(() => {
     if (paymentKind === "upi") {
-      const validation = validateUPI(context.customNote || "");
+      const validation = validateUPI(upiValue);
       setUpiError(validation.error || "");
       if (validation.valid) {
-        const upiValue = context.customNote || "";
-        setPaymentMethod({ id: generateOperationId(), kind: "upi", value: upiValue, label: "UPI", isDefault: false });
+        setPaymentMethod({ id: generateOperationId(), kind: "upi", value: upiValue.trim(), label: "UPI", isDefault: false });
         setPaymentKind("none");
-        setContext((prev) => ({ ...prev, customNote: "" }));
+        setUpiValue("");
       }
     } else if (paymentKind === "payment_url") {
-      const validation = validatePaymentUrl(context.customNote || "");
+      const validation = validatePaymentUrl(urlValue);
       setUrlError(validation.error || "");
       if (validation.valid) {
-        const urlValue = context.customNote || "";
-        setPaymentMethod({ id: generateOperationId(), kind: "payment_url", value: urlValue, label: "Payment link", isDefault: false });
+        setPaymentMethod({ id: generateOperationId(), kind: "payment_url", value: urlValue.trim(), label: "Payment link", isDefault: false });
         setPaymentKind("none");
-        setContext((prev) => ({ ...prev, customNote: "" }));
+        setUrlValue("");
       }
     }
-  }, [paymentKind, context]);
+  }, [paymentKind, upiValue, urlValue]);
 
   const handleGenerate = useCallback(async () => {
     if (!confirmed || !invoiceId) return;
@@ -719,33 +736,43 @@ function NewInvoicePageContent() {
                       </div>
 
                       {paymentKind === "upi" && (
-                        <FactRow
-                          label="UPI ID"
-                          value={context.customNote || ""}
-                          type="text"
-                          confidence="high"
-                          error={upiError}
-                          onChange={(v) => {
-                            setContext((prev) => ({ ...prev, customNote: v }));
-                            setUpiError("");
-                          }}
-                          helperText="Format: name@bank (e.g., yourname@okicici)"
-                        />
+                        <div className="space-y-2">
+                          <FactRow
+                            label="UPI ID"
+                            value={upiValue}
+                            type="text"
+                            confidence="high"
+                            error={upiError}
+                            onChange={(v) => {
+                              setUpiValue(v);
+                              setUpiError("");
+                            }}
+                            helperText="Format: name@bank (e.g., yourname@okicici)"
+                          />
+                          <Button variant="secondary" size="sm" onClick={handlePaymentMethodSubmit}>
+                            Add UPI ID
+                          </Button>
+                        </div>
                       )}
 
                       {paymentKind === "payment_url" && (
-                        <FactRow
-                          label="Payment URL"
-                          value={context.customNote || ""}
-                          type="text"
-                          confidence="high"
-                          error={urlError}
-                          onChange={(v) => {
-                            setContext((prev) => ({ ...prev, customNote: v }));
-                            setUrlError("");
-                          }}
-                          helperText="HTTPS URL only (e.g., Razorpay payment link)"
-                        />
+                        <div className="space-y-2">
+                          <FactRow
+                            label="Payment URL"
+                            value={urlValue}
+                            type="text"
+                            confidence="high"
+                            error={urlError}
+                            onChange={(v) => {
+                              setUrlValue(v);
+                              setUrlError("");
+                            }}
+                            helperText="HTTPS URL only (e.g., Razorpay payment link)"
+                          />
+                          <Button variant="secondary" size="sm" onClick={handlePaymentMethodSubmit}>
+                            Add payment link
+                          </Button>
+                        </div>
                       )}
 
                       {paymentMethod && (

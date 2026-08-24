@@ -107,6 +107,8 @@ async function extractInvoiceFields(text: string, mimeType: string): Promise<Ext
   // This is a simplified extraction - real implementation would use LLM
   const result: ExtractedInvoice = {
     clientName: { value: "", confidence: "missing" },
+    contactName: { value: null, confidence: "missing" },
+    contactPhoneE164: { value: null, confidence: "missing" },
     invoiceNumber: { value: null, confidence: "missing" },
     amountDueMinor: { value: 0, confidence: "missing" },
     currency: { value: "INR", confidence: "high" },

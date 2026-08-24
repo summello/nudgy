@@ -6,6 +6,16 @@ export const extractedInvoiceSchema = z.object({
     confidence: z.enum(["high", "review", "missing"]),
     evidence: z.string().optional(),
   }),
+  contactName: z.object({
+    value: z.string().nullable(),
+    confidence: z.enum(["high", "review", "missing"]),
+    evidence: z.string().optional(),
+  }),
+  contactPhoneE164: z.object({
+    value: z.string().nullable(),
+    confidence: z.enum(["high", "review", "missing"]),
+    evidence: z.string().optional(),
+  }),
   invoiceNumber: z.object({
     value: z.string().nullable(),
     confidence: z.enum(["high", "review", "missing"]),

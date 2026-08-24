@@ -5,6 +5,8 @@ import { Badge } from "./Badge";
 import { Button } from "./Button";
 import { formatAmount, formatDate, getDaysOverdue } from "@/lib/utils";
 
+type InvoiceStatus = "processing" | "needs_review" | "overdue" | "paid";
+
 export interface InvoiceCardProps {
   invoice: {
     id: string;
@@ -13,7 +15,7 @@ export interface InvoiceCardProps {
     amountMinor: number;
     currency: string;
     dueDate: string;
-    status: "processing" | "needs_review" | "overdue" | "paid";
+    status: InvoiceStatus;
     lastExportedTone?: string | null;
     lastExportedAt?: string | null;
     paidAt?: string | null;
@@ -24,23 +26,25 @@ export interface InvoiceCardProps {
   onDelete?: (id: string) => void;
 }
 
+function renderStatusBadge(status: InvoiceStatus, daysOverdue: number) {
+  switch (status) {
+    case "paid":
+      return <Badge variant="paid">Paid</Badge>;
+    case "processing":
+      return <Badge variant="processing">Processing</Badge>;
+    case "needs_review":
+      return <Badge variant="needs-review">Needs review</Badge>;
+    case "overdue":
+      return <Badge variant="overdue">{daysOverdue > 0 ? `${daysOverdue} days overdue` : "Due today"}</Badge>;
+    default:
+      return null;
+  }
+}
+
 export function InvoiceCard({ invoice, onContinue, onMarkPaid, onMarkOverdue, onDelete }: InvoiceCardProps) {
   const daysOverdue = getDaysOverdue(invoice.dueDate);
   const isOverdue = invoice.status === "overdue";
   const isPaid = invoice.status === "paid";
-
-  const statusBadge = () => {
-    switch (invoice.status) {
-      case "paid":
-        return <Badge variant="paid">Paid</Badge>;
-      case "processing":
-        return <Badge variant="processing">Processing</Badge>;
-      case "needs_review":
-        return <Badge variant="needs-review">Needs review</Badge>;
-      case "overdue":
-        return <Badge variant="overdue">{daysOverdue > 0 ? `${daysOverdue} days overdue` : "Due today"}</Badge>;
-    }
-  };
 
   const lastAction = invoice.lastExportedTone && invoice.lastExportedAt ? (
     <span className="text-body-sm text-ink-muted">
@@ -60,7 +64,7 @@ export function InvoiceCard({ invoice, onContinue, onMarkPaid, onMarkOverdue, on
                 {invoice.invoiceNumber}
               </span>
             )}
-            {statusBadge()}
+            {renderStatusBadge(invoice.status, daysOverdue)}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-4 text-body-sm text-ink-muted">
             <span className="font-medium text-ink tabular-nums">{formatAmount(invoice.amountMinor, invoice.currency)}</span>
@@ -130,7 +134,7 @@ export function InvoiceTableRow({ invoice, onContinue, onMarkPaid, onMarkOverdue
         {formatDate(invoice.dueDate)}
       </td>
       <td className="px-4 py-3 text-body-sm whitespace-nowrap">
-        {statusBadge()}
+        {renderStatusBadge(invoice.status, daysOverdue)}
       </td>
       <td className="px-4 py-3 text-body-sm text-ink-muted whitespace-nowrap">
         {invoice.lastExportedTone && invoice.lastExportedAt ? (
@@ -171,9 +175,4 @@ export function InvoiceTableRow({ invoice, onContinue, onMarkPaid, onMarkOverdue
       </td>
     </tr>
   );
-}
-
-function statusBadge() {
-  // This is a placeholder - the actual badge is rendered inline in the components above
-  return null;
 }

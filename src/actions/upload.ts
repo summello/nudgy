@@ -12,7 +12,6 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export async function uploadInvoice(formData: FormData) {
   const operationId = generateOperationId();
   const file = formData.get("file") as File;
-  const sessionId = formData.get("sessionId") as string;
 
   if (!file) {
     return { success: false, error: "No file provided", code: "NO_FILE" };
@@ -37,9 +36,9 @@ export async function uploadInvoice(formData: FormData) {
 
   const supabase = createServerSupabaseClient();
   
-  // Get user session
+  // Get user session; guest/sessionId fallback would violate RLS and the UUID column
   const { data: { user } } = await supabase.auth.getUser();
-  const ownerId = user?.id || sessionId;
+  const ownerId = user?.id;
 
   if (!ownerId) {
     return { success: false, error: "Authentication required", code: "UNAUTHORIZED" };
