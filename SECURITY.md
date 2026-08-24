@@ -67,4 +67,4 @@ This project is pre-1.0 (MVP). We support the current `main` branch only.
 
 Dependencies are pinned in `package-lock.json`. We review upstream advisories (`npm audit`) and provider data-retention contracts before processing real customer invoices.
 
-> **Known:** the currently pinned `next@14.2.0` is flagged by `npm audit` for a published advisory. Upgrade `next` (and `eslint-config-next`) to the latest patched 14.x before production use.
+> **Note:** `next` is pinned to the latest 14.x patch (`14.2.35`). Remaining `npm audit` findings relate to `next`-internal (nested `postcss`) and legacy tooling (`eslint-config-next` → `glob`) plus `sharp@0.33`; resolving them requires a major upgrade (`next` 15/16, `sharp` 0.35). Plan that upgrade before production exposure.
