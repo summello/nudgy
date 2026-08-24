@@ -1,8 +1,9 @@
 -- Invoice Nudge Database Schema
 -- Run this in Supabase SQL Editor
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- UUIDs: gen_random_uuid() is native (Postgres 13+); no extension needed.
+-- Note: hosted Supabase installs extensions into the `extensions` schema, so
+-- uuid_generate_v4() from "uuid-ossp" is not resolvable in migration search_path.
 
 -- Create custom types
 CREATE TYPE invoice_status AS ENUM ('processing', 'needs_review', 'overdue', 'paid');
@@ -24,7 +25,7 @@ CREATE TABLE profiles (
 
 -- Invoice files table
 CREATE TABLE invoice_files (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   file_name TEXT NOT NULL,
   file_size BIGINT NOT NULL,
@@ -41,7 +42,7 @@ CREATE TABLE invoice_files (
 
 -- Invoices table
 CREATE TABLE invoices (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   client_name TEXT NOT NULL,
   contact_name TEXT,
@@ -64,7 +65,7 @@ CREATE TABLE invoices (
 
 -- Payment methods table
 CREATE TABLE payment_methods (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   kind payment_kind NOT NULL,
   value_encrypted TEXT NOT NULL, -- In production, use proper encryption
@@ -76,7 +77,7 @@ CREATE TABLE payment_methods (
 
 -- Reminders table
 CREATE TABLE reminders (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   version INTEGER NOT NULL DEFAULT 1,
@@ -94,7 +95,7 @@ CREATE TABLE reminders (
 
 -- Reminder exports table
 CREATE TABLE reminder_exports (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   reminder_id UUID NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   action export_action NOT NULL,
