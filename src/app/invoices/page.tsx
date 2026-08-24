@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { InvoiceCard, InvoiceTableRow } from "@/components/ui";
@@ -12,64 +12,14 @@ import { Dialog, AlertDialog } from "@/components/ui";
 import { formatAmount, formatDate, getDaysOverdue, generateOperationId } from "@/lib/utils";
 import { Invoice, InvoiceStatus } from "@/types";
 
-const mockInvoices: Invoice[] = [
-  {
-    id: "1",
-    ownerId: "user1",
-    clientName: "Acme Design Studio",
-    contactName: "Priya Sharma",
-    contactPhoneE164: "+919876543210",
-    invoiceNumber: "INV-2024-001",
-    amountMinor: 4850000,
-    currency: "INR",
-    issueDate: "2024-07-15",
-    dueDate: "2024-08-10",
-    status: "overdue",
-    lastExportedTone: "firm",
-    lastExportedAt: "2024-08-20T10:30:00Z",
-    createdAt: "2024-08-15T10:00:00Z",
-    updatedAt: "2024-08-20T10:30:00Z",
-  },
-  {
-    id: "2",
-    ownerId: "user1",
-    clientName: "TechStart Labs",
-    contactName: "Rahul Patel",
-    contactPhoneE164: "+919876543211",
-    invoiceNumber: "INV-2024-002",
-    amountMinor: 7500000,
-    currency: "INR",
-    issueDate: "2024-07-20",
-    dueDate: "2024-08-05",
-    status: "overdue",
-    lastExportedTone: "friendly",
-    lastExportedAt: "2024-08-12T14:00:00Z",
-    createdAt: "2024-08-10T09:00:00Z",
-    updatedAt: "2024-08-12T14:00:00Z",
-  },
-  {
-    id: "3",
-    ownerId: "user1",
-    clientName: "Creative Agency Co",
-    contactName: "Anjali Mehta",
-    contactPhoneE164: "+919876543212",
-    invoiceNumber: "INV-2024-003",
-    amountMinor: 12000000,
-    currency: "INR",
-    issueDate: "2024-06-15",
-    dueDate: "2024-07-15",
-    status: "paid",
-    paidAt: "2024-07-20T11:00:00Z",
-    lastExportedTone: "final_notice",
-    lastExportedAt: "2024-07-18T16:00:00Z",
-    createdAt: "2024-07-10T10:00:00Z",
-    updatedAt: "2024-07-20T11:00:00Z",
-  },
-];
+interface InvoiceWithExtras extends Omit<Invoice, "lastExportedTone" | "lastExportedAt"> {
+  lastExportedTone?: string | null;
+  lastExportedAt?: string | null;
+}
 
 export default function InvoicesPage() {
-  const [invoices, setInvoices] = useState<Invoice[]>(mockInvoices);
-  const [loading, setLoading] = useState(false);
+  const [invoices, setInvoices] = useState<InvoiceWithExtras[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"overdue" | "paid" | "all">("overdue");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: "success" | "error" | "info" }>>([]);
@@ -79,13 +29,132 @@ export default function InvoicesPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProcessing, setUploadProcessing] = useState(false);
 
-  const addToast = (message: string, type: "success" | "error" | "info" = "success") => {
+  const addToast = useCallback((message: string, type: "success" | "error" | "info" = "success") => {
     const id = generateOperationId();
     setToasts((prev) => [...prev, { id, message, type }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const fetchInvoices = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/invoices?filter=${filter}`);
+      const result = await response.json();
+      if (result.success) {
+        setInvoices(result.invoices || []);
+      } else {
+        addToast(result.error || "Failed to load invoices", "error");
+        setInvoices([]);
+      }
+    } catch {
+      addToast("Failed to load invoices", "error");
+      setInvoices([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, addToast]);
+
+  useEffect(() => {
+    fetchInvoices();
+  }, [fetchInvoices]);
+
+  const handleContinue = (id: string) => {
+    const inv = invoices.find((i) => i.id === id);
+    if (inv) {
+      addToast(`Continuing ${inv.clientName}...`);
+      // Navigate to /new with invoice data
+    }
   };
 
-  const dismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  const handleMarkPaid = (id: string) => {
+    setShowPaidDialog(id);
+  };
+
+  const confirmMarkPaid = async (id: string) => {
+    try {
+      const response = await fetch(`/api/invoices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid" }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setInvoices((prev) =>
+          prev.map((inv) =>
+            inv.id === id ? { ...inv, status: "paid" as InvoiceStatus, paidAt: new Date().toISOString() } : inv
+          )
+        );
+        addToast("Invoice marked as paid");
+      } else {
+        addToast(result.error || "Failed to mark as paid", "error");
+      }
+    } catch {
+      addToast("Failed to mark as paid", "error");
+    }
+    setShowPaidDialog(null);
+  };
+
+  const handleMarkOverdue = (id: string) => {
+    setShowOverdueDialog(id);
+  };
+
+  const confirmMarkOverdue = async (id: string) => {
+    try {
+      const response = await fetch(`/api/invoices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_overdue" }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setInvoices((prev) =>
+          prev.map((inv) =>
+            inv.id === id ? { ...inv, status: "overdue" as InvoiceStatus, paidAt: undefined } : inv
+          )
+        );
+        addToast("Invoice marked as overdue");
+      } else {
+        addToast(result.error || "Failed to mark as overdue", "error");
+      }
+    } catch {
+      addToast("Failed to mark as overdue", "error");
+    }
+    setShowOverdueDialog(null);
+  };
+
+  const handleDelete = (id: string) => {
+    setShowDeleteDialog(id);
+  };
+
+  const confirmDelete = async (id: string) => {
+    try {
+      const response = await fetch(`/api/invoices/${id}`, {
+        method: "DELETE",
+      });
+      const result = await response.json();
+      if (result.success) {
+        setInvoices((prev) => prev.filter((inv) => inv.id !== id));
+        addToast("Invoice deleted");
+      } else {
+        addToast(result.error || "Failed to delete", "error");
+      }
+    } catch {
+      addToast("Failed to delete invoice", "error");
+    }
+    setShowDeleteDialog(null);
+  };
+
+  const handleFileSelect = (file: File) => {
+    setSelectedFile(file);
+    addToast(`Selected ${file.name}. Starting extraction...`);
+    // In real app, navigate to /new with file
+  };
+
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
   };
 
   const filteredInvoices = invoices.filter((inv) => {
@@ -100,62 +169,6 @@ export default function InvoicesPage() {
 
   const overdueInvoices = invoices.filter((inv) => inv.status === "overdue");
   const overdueTotal = overdueInvoices.reduce((sum, inv) => sum + inv.amountMinor, 0);
-
-  const handleContinue = (id: string) => {
-    const inv = invoices.find((i) => i.id === id);
-    if (inv) {
-      // In real app, navigate to /new with invoice data pre-filled
-      addToast(`Continuing ${inv.clientName}...`);
-    }
-  };
-
-  const handleMarkPaid = (id: string) => {
-    setShowPaidDialog(id);
-  };
-
-  const confirmMarkPaid = (id: string) => {
-    setInvoices((prev) =>
-      prev.map((inv) =>
-        inv.id === id ? { ...inv, status: "paid" as InvoiceStatus, paidAt: new Date().toISOString() } : inv
-      )
-    );
-    addToast("Invoice marked as paid");
-    setShowPaidDialog(null);
-  };
-
-  const handleMarkOverdue = (id: string) => {
-    setShowOverdueDialog(id);
-  };
-
-  const confirmMarkOverdue = (id: string) => {
-    setInvoices((prev) =>
-      prev.map((inv) =>
-        inv.id === id ? { ...inv, status: "overdue" as InvoiceStatus, paidAt: undefined } : inv
-      )
-    );
-    addToast("Invoice marked as overdue");
-    setShowOverdueDialog(null);
-  };
-
-  const handleDelete = (id: string) => {
-    setShowDeleteDialog(id);
-  };
-
-  const confirmDelete = (id: string) => {
-    setInvoices((prev) => prev.filter((inv) => inv.id !== id));
-    addToast("Invoice deleted");
-    setShowDeleteDialog(null);
-  };
-
-  const handleFileSelect = (file: File) => {
-    setSelectedFile(file);
-    // In real app, this would start the upload flow
-    addToast(`Selected ${file.name}. Starting extraction...`);
-  };
-
-  const handleRemoveFile = () => {
-    setSelectedFile(null);
-  };
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
@@ -241,7 +254,18 @@ export default function InvoicesPage() {
             </div>
           </div>
 
-          {filteredInvoices.length === 0 ? (
+          {loading ? (
+            <Card className="py-12 px-6">
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="animate-pulse">
+                    <div className="h-4 bg-surface-subtle rounded w-3/4 mb-2" />
+                    <div className="h-4 bg-surface-subtle rounded w-1/2" />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : filteredInvoices.length === 0 ? (
             <Card className="py-12 px-6 text-center">
               {filter === "overdue" ? (
                 <>
