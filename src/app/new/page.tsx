@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui";
 import { Toast, ToastContainer } from "@/components/ui";
 import { Dialog, AlertDialog } from "@/components/ui";
 import { formatAmount, formatDate, parseAmount, validateUPI, validatePaymentUrl, validateE164Phone, getDaysOverdue, getToneRecommendation, getToneRecommendationReason, generateOperationId } from "@/lib/utils";
+import { requestJson } from "@/lib/http";
 import { generateDraft, validateDraft } from "@/lib/templates";
 import { ConfirmedInvoice, ReminderContext, PaymentMethod, ReminderDraft, Tone, ExtractedInvoice } from "@/types";
 import { confirmedInvoiceSchema, reminderContextSchema, paymentMethodSchema } from "@/lib/schemas";
@@ -107,16 +108,13 @@ function NewInvoicePageContent() {
     try {
       const formData = new FormData();
       formData.append("file", f);
-      formData.append("sessionId", "guest");
 
-      const response = await fetch("/api/upload", {
+      const result = await requestJson<{ success: boolean; fileId?: string; error?: string }>("/api/upload", {
         method: "POST",
         body: formData,
       });
 
-      const result = await response.json();
-
-      if (!result.success) {
+      if (!result.success || !result.fileId) {
         throw new Error(result.error || "Upload failed");
       }
 
@@ -137,21 +135,32 @@ function NewInvoicePageContent() {
     setError(null);
 
     try {
-      const response = await fetch("/api/extract", {
+      const result = await requestJson<{ success: boolean; extracted?: ExtractedInvoice; error?: string }>("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId: fId }),
       });
 
-      const result = await response.json();
-
-      if (!result.success) {
+      if (!result.success || !result.extracted) {
         throw new Error(result.error || "Extraction failed");
       }
 
-      // Convert extracted data to ExtractedInvoice format
       const extractedData = result.extracted;
       setExtracted(extractedData);
+
+      // Initialize confirmed facts from the extraction (event handler, not an
+      // effect — the user's subsequent edits live in `confirmed` state).
+      setConfirmed({
+        clientName: extractedData.clientName.value,
+        contactName: extractedData.contactName?.value || undefined,
+        contactPhoneE164: extractedData.contactPhoneE164?.value || undefined,
+        invoiceNumber: extractedData.invoiceNumber?.value || undefined,
+        amountMinor: extractedData.amountDueMinor.value,
+        currency: extractedData.currency.value,
+        issueDate: extractedData.issueDate?.value || undefined,
+        dueDate: extractedData.dueDate.value || "",
+      });
+
       setStep(2);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Extraction failed";
@@ -209,12 +218,11 @@ function NewInvoicePageContent() {
 
     // Persist the confirmed invoice so generation has a row to reference
     try {
-      const response = await fetch("/api/invoices", {
+      const result = await requestJson<{ success: boolean; invoiceId?: string; error?: string }>("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(confirmed),
       });
-      const result = await response.json();
       if (result.success && result.invoiceId) {
         setInvoiceId(result.invoiceId);
       } else {
@@ -271,7 +279,7 @@ function NewInvoicePageContent() {
     setError(null);
 
     try {
-      const response = await fetch("/api/generate", {
+      const result = await requestJson<{ success: boolean; draft?: ReminderDraft; reminderId?: string; error?: string }>("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -285,14 +293,12 @@ function NewInvoicePageContent() {
         }),
       });
 
-      const result = await response.json();
-
-      if (!result.success) {
+      if (!result.success || !result.draft) {
         throw new Error(result.error || "Generation failed");
       }
 
       setDraft(result.draft);
-      setReminderId(result.reminderId);
+      setReminderId(result.reminderId ?? null);
       setStep(4);
       setEmailEdited(false);
       setWhatsAppEdited(false);
@@ -312,7 +318,7 @@ function NewInvoicePageContent() {
     setError(null);
 
     try {
-      const response = await fetch("/api/regenerate", {
+      const result = await requestJson<{ success: boolean; draft?: ReminderDraft; reminderId?: string; error?: string }>("/api/regenerate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -323,14 +329,12 @@ function NewInvoicePageContent() {
         }),
       });
 
-      const result = await response.json();
-
-      if (!result.success) {
+      if (!result.success || !result.draft) {
         throw new Error(result.error || "Regeneration failed");
       }
 
       setDraft(result.draft);
-      setReminderId(result.reminderId);
+      setReminderId(result.reminderId ?? null);
       setEmailEdited(false);
       setWhatsAppEdited(false);
       addToast("Draft regenerated");
@@ -445,30 +449,6 @@ function NewInvoicePageContent() {
     confirmed.dueDate;
 
   const canGenerate = confirmed && step === 3;
-
-  // Auto-extract when file is uploaded
-  useEffect(() => {
-    if (file && !fileId && step === 1 && !processing) {
-      handleFileSelectWithUpload(file);
-    }
-  }, [file, fileId, step, processing, handleFileSelectWithUpload]);
-
-  // When extraction completes, initialize confirmed with extracted values
-  useEffect(() => {
-    if (step === 2 && extracted.clientName.value) {
-      const initialConfirmed: ConfirmedInvoice = {
-        clientName: extracted.clientName.value,
-        contactName: extracted.contactName?.value || undefined,
-        contactPhoneE164: extracted.contactPhoneE164?.value || undefined,
-        invoiceNumber: extracted.invoiceNumber?.value || undefined,
-        amountMinor: extracted.amountDueMinor.value,
-        currency: extracted.currency.value,
-        issueDate: extracted.issueDate?.value || undefined,
-        dueDate: extracted.dueDate.value || "",
-      };
-      setConfirmed(initialConfirmed);
-    }
-  }, [extracted, step]);
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">

@@ -1,5 +1,18 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const sourceSerif = Source_Serif_4({
+  subsets: ["latin"],
+  variable: "--font-source-serif",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Invoice Nudge — Turn overdue invoices into professional follow-ups",
@@ -40,12 +53,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en-IN" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&family=Source+Serif+4:wght@400;600&display=swap" rel="stylesheet" />
-      </head>
+    <html lang="en-IN" suppressHydrationWarning className={`${inter.variable} ${sourceSerif.variable}`}>
       <body className="min-h-screen flex flex-col">{children}</body>
     </html>
   );

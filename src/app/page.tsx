@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
 import { DropZone } from "@/components/ui";
 
 export default function HomePage() {
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +33,8 @@ export default function HomePage() {
 
   const handleContinue = () => {
     if (selectedFile) {
-      // In a real app, this would navigate to /new with the file
-      // For now, we'll simulate the flow
-      window.location.href = `/new?file=${encodeURIComponent(selectedFile.name)}`;
+      // The upload itself starts on /new; carry only the display name across.
+      router.push(`/new?file=${encodeURIComponent(selectedFile.name)}`);
     }
   };
 

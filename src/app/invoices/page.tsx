@@ -10,6 +10,7 @@ import { DropZone } from "@/components/ui";
 import { Toast, ToastContainer } from "@/components/ui";
 import { Dialog, AlertDialog } from "@/components/ui";
 import { formatAmount, formatDate, getDaysOverdue, generateOperationId } from "@/lib/utils";
+import { requestJson } from "@/lib/http";
 import { Invoice, InvoiceStatus } from "@/types";
 
 interface InvoiceWithExtras extends Omit<Invoice, "lastExportedTone" | "lastExportedAt"> {
@@ -38,28 +39,36 @@ export default function InvoicesPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const fetchInvoices = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/invoices?filter=${filter}`);
-      const result = await response.json();
-      if (result.success) {
-        setInvoices(result.invoices || []);
-      } else {
-        addToast(result.error || "Failed to load invoices", "error");
-        setInvoices([]);
-      }
-    } catch {
-      addToast("Failed to load invoices", "error");
-      setInvoices([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, addToast]);
-
+  // All state updates happen inside async callbacks (not synchronously in the
+  // effect body) to avoid cascading renders.
   useEffect(() => {
-    fetchInvoices();
-  }, [fetchInvoices]);
+    let active = true;
+
+    requestJson<{ success: boolean; invoices?: InvoiceWithExtras[]; error?: string }>(
+      `/api/invoices?filter=${filter}`
+    )
+      .then((result) => {
+        if (!active) return;
+        if (result.success) {
+          setInvoices(result.invoices || []);
+        } else {
+          addToast(result.error || "Failed to load invoices", "error");
+          setInvoices([]);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        addToast(err instanceof Error ? err.message : "Failed to load invoices", "error");
+        setInvoices([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [filter, addToast]);
 
   const handleContinue = (id: string) => {
     const inv = invoices.find((i) => i.id === id);
@@ -75,12 +84,11 @@ export default function InvoicesPage() {
 
   const confirmMarkPaid = async (id: string) => {
     try {
-      const response = await fetch(`/api/invoices/${id}`, {
+      const result = await requestJson<{ success: boolean; error?: string }>(`/api/invoices/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_paid" }),
       });
-      const result = await response.json();
       if (result.success) {
         setInvoices((prev) =>
           prev.map((inv) =>
@@ -91,8 +99,8 @@ export default function InvoicesPage() {
       } else {
         addToast(result.error || "Failed to mark as paid", "error");
       }
-    } catch {
-      addToast("Failed to mark as paid", "error");
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "Failed to mark as paid", "error");
     }
     setShowPaidDialog(null);
   };
@@ -103,12 +111,11 @@ export default function InvoicesPage() {
 
   const confirmMarkOverdue = async (id: string) => {
     try {
-      const response = await fetch(`/api/invoices/${id}`, {
+      const result = await requestJson<{ success: boolean; error?: string }>(`/api/invoices/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_overdue" }),
       });
-      const result = await response.json();
       if (result.success) {
         setInvoices((prev) =>
           prev.map((inv) =>
@@ -119,8 +126,8 @@ export default function InvoicesPage() {
       } else {
         addToast(result.error || "Failed to mark as overdue", "error");
       }
-    } catch {
-      addToast("Failed to mark as overdue", "error");
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "Failed to mark as overdue", "error");
     }
     setShowOverdueDialog(null);
   };
@@ -131,18 +138,17 @@ export default function InvoicesPage() {
 
   const confirmDelete = async (id: string) => {
     try {
-      const response = await fetch(`/api/invoices/${id}`, {
+      const result = await requestJson<{ success: boolean; error?: string }>(`/api/invoices/${id}`, {
         method: "DELETE",
       });
-      const result = await response.json();
       if (result.success) {
         setInvoices((prev) => prev.filter((inv) => inv.id !== id));
         addToast("Invoice deleted");
       } else {
         addToast(result.error || "Failed to delete", "error");
       }
-    } catch {
-      addToast("Failed to delete invoice", "error");
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : "Failed to delete invoice", "error");
     }
     setShowDeleteDialog(null);
   };
