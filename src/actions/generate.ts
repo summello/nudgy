@@ -8,7 +8,7 @@ import { ConfirmedInvoice, ReminderContext, PaymentMethod, Tone, ReminderDraft }
 
 export async function generateReminder(input: GenerationInput) {
   const operationId = generateOperationId();
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
@@ -95,7 +95,7 @@ export async function regenerateReminder(
   paymentMethod?: PaymentMethod
 ) {
   const operationId = generateOperationId();
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {

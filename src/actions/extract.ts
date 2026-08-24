@@ -7,7 +7,7 @@ import { extractedInvoiceSchema, ExtractedInvoice } from "@/lib/schemas";
 
 export async function extractInvoice(fileId: string) {
   const operationId = generateOperationId();
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {

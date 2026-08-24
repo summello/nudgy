@@ -34,7 +34,7 @@ export async function uploadInvoice(formData: FormData) {
     return { success: false, error: "File type does not match content. Please upload a valid PDF, PNG, or JPG.", code: "SIGNATURE_MISMATCH" };
   }
 
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   
   // Get user session; guest/sessionId fallback would violate RLS and the UUID column
   const { data: { user } } = await supabase.auth.getUser();
@@ -135,7 +135,7 @@ function verifyFileSignature(buffer: Buffer, mimeType: string): boolean {
 }
 
 export async function getSignedUrl(objectPath: string) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {
@@ -166,7 +166,7 @@ export async function getSignedUrl(objectPath: string) {
 }
 
 export async function deleteFile(fileId: string) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {

@@ -5,7 +5,7 @@ import { generateOperationId, getDaysOverdue } from "@/lib/utils";
 import { ConfirmedInvoice } from "@/types";
 
 export async function getInvoices(filter: "overdue" | "paid" | "all" = "overdue") {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {
@@ -77,7 +77,7 @@ export async function getInvoices(filter: "overdue" | "paid" | "all" = "overdue"
 }
 
 export async function markInvoicePaid(invoiceId: string) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {
@@ -102,7 +102,7 @@ export async function markInvoicePaid(invoiceId: string) {
 }
 
 export async function markInvoiceOverdue(invoiceId: string) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {
@@ -127,7 +127,7 @@ export async function markInvoiceOverdue(invoiceId: string) {
 }
 
 export async function deleteInvoice(invoiceId: string) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {
@@ -163,7 +163,7 @@ export async function deleteInvoice(invoiceId: string) {
 }
 
 export async function getInvoiceDetail(invoiceId: string) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user) {
@@ -222,7 +222,7 @@ export async function getInvoiceDetail(invoiceId: string) {
 }
 
 export async function confirmInvoice(input: ConfirmedInvoice & { sourceObjectPath?: string; sourceSha256?: string; extractionMethod?: string }) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {

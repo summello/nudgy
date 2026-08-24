@@ -65,6 +65,4 @@ This project is pre-1.0 (MVP). We support the current `main` branch only.
 
 ## Dependency policy
 
-Dependencies are pinned in `package-lock.json`. We review upstream advisories (`npm audit`) and provider data-retention contracts before processing real customer invoices.
-
-> **Note:** `next` is pinned to the latest 14.x patch (`14.2.35`). Remaining `npm audit` findings relate to `next`-internal (nested `postcss`) and legacy tooling (`eslint-config-next` → `glob`) plus `sharp@0.33`; resolving them requires a major upgrade (`next` 15/16, `sharp` 0.35). Plan that upgrade before production exposure.
+Dependencies are pinned in `package-lock.json`. We review upstream advisories (`npm audit`) and provider data-retention contracts before processing real customer invoices. As of the current release (`next@16`, ESLint 9 toolchain), `npm audit` reports no known vulnerabilities.

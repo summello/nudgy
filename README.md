@@ -9,7 +9,7 @@
 
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" />
-  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-14-black" />
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-blue" />
 </p>
 
@@ -48,7 +48,7 @@ Invoice Nudge localises the workflow for Indian service professionals:
 
 | Layer | Choice |
 | --- | --- |
-| Framework | [Next.js 14](https://nextjs.org) (App Router, TypeScript) |
+| Framework | [Next.js 16](https://nextjs.org) (App Router, TypeScript) |
 | Styling | [Tailwind CSS](https://tailwindcss.com) + CSS design tokens |
 | Auth / DB / Storage | [Supabase](https://supabase.com) (Postgres + Row Level Security + private buckets) |
 | Validation | [Zod](https://zod.dev) (shared across route boundaries) |
