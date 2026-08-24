@@ -1,8 +1,9 @@
 -- Invoice Nudge Database Schema
 -- Run this in Supabase SQL Editor
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- UUIDs: gen_random_uuid() is native (Postgres 13+); no extension needed.
+-- Note: hosted Supabase installs extensions into the `extensions` schema, so
+-- uuid_generate_v4() from "uuid-ossp" is not resolvable in migration search_path.
 
 -- Create custom types
 CREATE TYPE invoice_status AS ENUM ('processing', 'needs_review', 'overdue', 'paid');
@@ -24,7 +25,7 @@ CREATE TABLE profiles (
 
 -- Invoice files table
 CREATE TABLE invoice_files (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   file_name TEXT NOT NULL,
   file_size BIGINT NOT NULL,
@@ -41,7 +42,7 @@ CREATE TABLE invoice_files (
 
 -- Invoices table
 CREATE TABLE invoices (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   client_name TEXT NOT NULL,
   contact_name TEXT,
@@ -64,7 +65,7 @@ CREATE TABLE invoices (
 
 -- Payment methods table
 CREATE TABLE payment_methods (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   kind payment_kind NOT NULL,
   value_encrypted TEXT NOT NULL, -- In production, use proper encryption
@@ -76,7 +77,7 @@ CREATE TABLE payment_methods (
 
 -- Reminders table
 CREATE TABLE reminders (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   version INTEGER NOT NULL DEFAULT 1,
@@ -94,7 +95,7 @@ CREATE TABLE reminders (
 
 -- Reminder exports table
 CREATE TABLE reminder_exports (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   reminder_id UUID NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
   owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   action export_action NOT NULL,
@@ -212,14 +213,25 @@ CREATE TRIGGER update_payment_methods_updated_at BEFORE UPDATE ON payment_method
 CREATE TRIGGER update_reminders_updated_at BEFORE UPDATE ON reminders
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Storage bucket for invoice files
--- Run this in Supabase Storage UI or via API:
--- INSERT INTO storage.buckets (id, name, public) VALUES ('invoice-files', 'invoice-files', FALSE);
+-- Private storage bucket for invoice files (idempotent)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('invoice-files', 'invoice-files', FALSE)
+ON CONFLICT (id) DO NOTHING;
 
--- Storage policies (run after bucket creation)
--- CREATE POLICY "Users can upload own files" ON storage.objects
---   FOR INSERT WITH CHECK (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1]);
--- CREATE POLICY "Users can view own files" ON storage.objects
---   FOR SELECT USING (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1]);
--- CREATE POLICY "Users can delete own files" ON storage.objects
---   FOR DELETE USING (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1]);
+-- Storage policies: owner-scoped by first path segment (= auth.uid())
+CREATE POLICY "Users can upload own invoice files" ON storage.objects
+  FOR INSERT TO AUTHENTICATED
+  WITH CHECK (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY "Users can read own invoice files" ON storage.objects
+  FOR SELECT TO AUTHENTICATED
+  USING (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY "Users can update own invoice files" ON storage.objects
+  FOR UPDATE TO AUTHENTICATED
+  USING (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1])
+  WITH CHECK (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1]);
+
+CREATE POLICY "Users can delete own invoice files" ON storage.objects
+  FOR DELETE TO AUTHENTICATED
+  USING (bucket_id = 'invoice-files' AND auth.uid()::text = (storage.foldername(name))[1]);
