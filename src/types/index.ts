@@ -6,6 +6,8 @@ export type PaymentMethodKind = "upi" | "payment_url";
 
 export interface ExtractedInvoice {
   clientName: Candidate<string>;
+  contactName: Candidate<string | null>;
+  contactPhoneE164: Candidate<string | null>;
   invoiceNumber: Candidate<string | null>;
   amountDueMinor: Candidate<number>;
   currency: Candidate<string>;

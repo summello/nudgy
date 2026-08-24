@@ -27,6 +27,8 @@ const STEPS = [
 
 const initialExtracted: ExtractedInvoice = {
   clientName: { value: "", confidence: "missing" },
+  contactName: { value: null, confidence: "missing" },
+  contactPhoneE164: { value: null, confidence: "missing" },
   invoiceNumber: { value: null, confidence: "missing" },
   amountDueMinor: { value: 0, confidence: "missing" },
   currency: { value: "INR", confidence: "high" },
@@ -41,6 +43,7 @@ function NewInvoicePageContent() {
   const searchParams = useSearchParams();
   const [step, setStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
+  const [fileId, setFileId] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [extracted, setExtracted] = useState<ExtractedInvoice>(initialExtracted);
   const [confirmed, setConfirmed] = useState<ConfirmedInvoice | null>(null);
@@ -59,6 +62,9 @@ function NewInvoicePageContent() {
   const [urlError, setUrlError] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [paymentKind, setPaymentKind] = useState<"upi" | "payment_url" | "none">("none");
+  const [invoiceId, setInvoiceId] = useState<string | null>(null);
+  const [reminderId, setReminderId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const addToast = useCallback((message: string, type: "success" | "error" | "info" = "success") => {
     const id = generateOperationId();
@@ -75,58 +81,106 @@ function NewInvoicePageContent() {
     setExtracted(initialExtracted);
     setConfirmed(null);
     setDraft(null);
+    setFileId(null);
+    setInvoiceId(null);
+    setReminderId(null);
     setStep(1);
   }, []);
 
   const handleRemoveFile = useCallback(() => {
     setFile(null);
+    setFileId(null);
     setExtracted(initialExtracted);
     setConfirmed(null);
     setDraft(null);
+    setInvoiceId(null);
+    setReminderId(null);
     setStep(1);
   }, []);
 
-  const extractFromFile = useCallback(async (f: File) => {
+  const uploadFile = useCallback(async (f: File) => {
     setProcessing(true);
     setError(null);
 
     try {
-      // Simulate extraction - in real app this would call the server
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const formData = new FormData();
+      formData.append("file", f);
+      formData.append("sessionId", "guest");
 
-      // Mock extraction based on filename for demo
-      const mockExtracted: ExtractedInvoice = {
-        clientName: { value: "Acme Design Studio", confidence: "high", evidence: "Acme Design Studio" },
-        invoiceNumber: { value: "INV-2024-001", confidence: "high", evidence: "INV-2024-001" },
-        amountDueMinor: { value: 4850000, confidence: "high", evidence: "₹48,500.00" },
-        currency: { value: "INR", confidence: "high", evidence: "INR" },
-        issueDate: { value: "2024-07-15", confidence: "high", evidence: "15 Jul 2024" },
-        dueDate: { value: "2024-08-10", confidence: "high", evidence: "10 Aug 2024" },
-      };
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
 
-      setExtracted(mockExtracted);
-      setStep(2);
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || "Upload failed");
+      }
+
+      setFileId(result.fileId);
+      return result.fileId;
     } catch (err) {
-      setError("Failed to extract invoice details. Please try again or enter manually.");
+      const message = err instanceof Error ? err.message : "Upload failed";
+      setError(message);
+      addToast(message, "error");
+      return null;
     } finally {
       setProcessing(false);
     }
-  }, []);
+  }, [addToast]);
 
-  const [error, setError] = useState<string | null>(null);
+  const extractInvoice = useCallback(async (fId: string) => {
+    setProcessing(true);
+    setError(null);
 
-  // Auto-extract when file is selected
-  useEffect(() => {
-    if (file && step === 1 && !processing) {
-      extractFromFile(file);
+    try {
+      const response = await fetch("/api/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId: fId }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || "Extraction failed");
+      }
+
+      // Convert extracted data to ExtractedInvoice format
+      const extractedData = result.extracted;
+      setExtracted(extractedData);
+      setStep(2);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Extraction failed";
+      setError(message);
+      addToast(message, "error");
+    } finally {
+      setProcessing(false);
     }
-  }, [file, step, processing, extractFromFile]);
+  }, [addToast]);
+
+  const handleFileSelectWithUpload = useCallback(async (f: File) => {
+    setFile(f);
+    setError(null);
+    setExtracted(initialExtracted);
+    setConfirmed(null);
+    setDraft(null);
+    setFileId(null);
+    setInvoiceId(null);
+    setReminderId(null);
+    setStep(1);
+
+    const uploadedFileId = await uploadFile(f);
+    if (uploadedFileId) {
+      await extractInvoice(uploadedFileId);
+    }
+  }, [uploadFile, extractInvoice]);
 
   const updateConfirmed = useCallback((field: keyof ConfirmedInvoice, value: string | number) => {
     if (!confirmed) return;
     const updated = { ...confirmed, [field]: value };
     setConfirmed(updated);
-    // Regenerate draft if we're on step 4
     if (step === 4 && draft) {
       const newDraft = generateDraft(tone, updated, context, paymentMethod || undefined);
       const errors = validateDraft(newDraft, updated, paymentMethod || undefined);
@@ -145,14 +199,12 @@ function NewInvoicePageContent() {
       return;
     }
 
-    // Check if overdue
     const daysOverdue = getDaysOverdue(confirmed.dueDate);
     if (daysOverdue < 0) {
       addToast("This invoice is not overdue yet. Invoice Nudge is for overdue invoices.", "error");
       return;
     }
 
-    // Auto-recommend tone
     const priorCount = context.priorReminderCount || 0;
     const recommended = getToneRecommendation(daysOverdue, priorCount);
     setTone(recommended);
@@ -176,8 +228,7 @@ function NewInvoicePageContent() {
 
   const handlePaymentMethodSubmit = useCallback(() => {
     if (paymentKind === "upi") {
-      const validation = validateUPI(context.customNote || ""); // Using customNote temporarily for UPI input
-      // Actually need a separate UPI state
+      const validation = validateUPI(context.customNote || "");
       setUpiError(validation.error || "");
       if (validation.valid) {
         const upiValue = context.customNote || "";
@@ -198,42 +249,82 @@ function NewInvoicePageContent() {
   }, [paymentKind, context]);
 
   const handleGenerate = useCallback(async () => {
-    if (!confirmed) return;
+    if (!confirmed || !invoiceId) return;
     setGenerating(true);
     setError(null);
 
     try {
-      // Use deterministic template first (fast, reliable)
-      const newDraft = generateDraft(tone, confirmed, context, paymentMethod || undefined);
-      const errors = validateDraft(newDraft, confirmed, paymentMethod || undefined);
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceId,
+          invoice: confirmed,
+          tone,
+          context,
+          paymentMethod,
+          daysOverdue: getDaysOverdue(confirmed.dueDate),
+          promptVersion: "v1",
+        }),
+      });
 
-      if (errors.length > 0) {
-        // Try to repair by regenerating
-        addToast("Regenerating draft...", "info");
-        const retryDraft = generateDraft(tone, confirmed, context, paymentMethod || undefined);
-        const retryErrors = validateDraft(retryDraft, confirmed, paymentMethod || undefined);
-        if (retryErrors.length > 0) {
-          throw new Error("Could not generate a safe draft. Please check your inputs.");
-        }
-        setDraft(retryDraft);
-      } else {
-        setDraft(newDraft);
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || "Generation failed");
       }
 
+      setDraft(result.draft);
+      setReminderId(result.reminderId);
       setStep(4);
       setEmailEdited(false);
       setWhatsAppEdited(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate draft. Please try again.");
-      addToast("Failed to generate draft", "error");
+      const message = err instanceof Error ? err.message : "Failed to generate draft. Please try again.";
+      setError(message);
+      addToast(message, "error");
     } finally {
       setGenerating(false);
     }
-  }, [confirmed, tone, context, paymentMethod, addToast]);
+  }, [confirmed, invoiceId, tone, context, paymentMethod, addToast]);
 
-  const handleRegenerate = useCallback(() => {
-    handleGenerate();
-  }, [handleGenerate]);
+  const handleRegenerate = useCallback(async () => {
+    if (!reminderId) return handleGenerate();
+    
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reminderId,
+          tone,
+          context,
+          paymentMethod,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || "Regeneration failed");
+      }
+
+      setDraft(result.draft);
+      setReminderId(result.reminderId);
+      setEmailEdited(false);
+      setWhatsAppEdited(false);
+      addToast("Draft regenerated");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to regenerate draft";
+      setError(message);
+      addToast(message, "error");
+    } finally {
+      setGenerating(false);
+    }
+  }, [reminderId, tone, context, paymentMethod, handleGenerate, addToast]);
 
   const handleCopyEmail = useCallback(async () => {
     if (!draft) return;
@@ -241,13 +332,23 @@ function NewInvoicePageContent() {
     try {
       const text = `Subject: ${draft.emailSubject}\n\n${draft.emailBody}`;
       await navigator.clipboard.writeText(text);
+      
+      // Record export event
+      if (reminderId) {
+        await fetch("/api/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reminderId, action: "email_copied" }),
+        });
+      }
+      
       addToast("Email copied to clipboard");
     } catch {
       addToast("Failed to copy. Please select and copy manually.", "error");
     } finally {
       setCopying(false);
     }
-  }, [draft, addToast]);
+  }, [draft, reminderId, addToast]);
 
   const handleOpenWhatsApp = useCallback(() => {
     if (!draft || !context.contactPhoneE164) return;
@@ -259,24 +360,43 @@ function NewInvoicePageContent() {
     }
     const url = `https://wa.me/${phoneValidation.formatted.replace("+", "")}?text=${encodeURIComponent(draft.whatsappBody)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+    
+    // Record export event
+    if (reminderId) {
+      fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reminderId, action: "whatsapp_opened" }),
+      });
+    }
+    
     addToast("Opened WhatsApp");
-  }, [draft, context, addToast]);
+  }, [draft, context, reminderId, addToast]);
 
   const handleCopyWhatsApp = useCallback(async () => {
     if (!draft) return;
     setCopying(true);
     try {
       await navigator.clipboard.writeText(draft.whatsappBody);
+      
+      // Record export event
+      if (reminderId) {
+        await fetch("/api/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reminderId, action: "whatsapp_copied" }),
+        });
+      }
+      
       addToast("WhatsApp message copied");
     } catch {
       addToast("Failed to copy. Please select and copy manually.", "error");
     } finally {
       setCopying(false);
     }
-  }, [draft, addToast]);
+  }, [draft, reminderId, addToast]);
 
   const handleSaveDraft = useCallback(() => {
-    // In real app, save to database
     addToast("Draft saved. Redirecting to dashboard...");
     setTimeout(() => router.push("/invoices"), 1000);
   }, [addToast, router]);
@@ -286,7 +406,6 @@ function NewInvoicePageContent() {
   }, []);
 
   const confirmMarkPaid = useCallback(() => {
-    // In real app, update database
     addToast("Invoice marked as paid");
     setShowPaidDialog(false);
     router.push("/invoices");
@@ -310,7 +429,29 @@ function NewInvoicePageContent() {
 
   const canGenerate = confirmed && step === 3;
 
-  const toneOptions: Tone[] = ["friendly", "firm", "final_notice"];
+  // Auto-extract when file is uploaded
+  useEffect(() => {
+    if (file && !fileId && step === 1 && !processing) {
+      handleFileSelectWithUpload(file);
+    }
+  }, [file, fileId, step, processing, handleFileSelectWithUpload]);
+
+  // When extraction completes, initialize confirmed with extracted values
+  useEffect(() => {
+    if (step === 2 && extracted.clientName.value) {
+      const initialConfirmed: ConfirmedInvoice = {
+        clientName: extracted.clientName.value,
+        contactName: extracted.contactName?.value || undefined,
+        contactPhoneE164: extracted.contactPhoneE164?.value || undefined,
+        invoiceNumber: extracted.invoiceNumber?.value || undefined,
+        amountMinor: extracted.amountDueMinor.value,
+        currency: extracted.currency.value,
+        issueDate: extracted.issueDate?.value || undefined,
+        dueDate: extracted.dueDate.value || "",
+      };
+      setConfirmed(initialConfirmed);
+    }
+  }, [extracted, step]);
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
@@ -338,7 +479,7 @@ function NewInvoicePageContent() {
                 <h2 className="text-h2 text-ink">Upload invoice</h2>
                 <p className="text-body text-ink-muted">PDF, PNG, or JPG · Up to 10MB · Your invoice stays private</p>
                 <DropZone
-                  onFileSelect={handleFileSelect}
+                  onFileSelect={handleFileSelectWithUpload}
                   selectedFile={file}
                   onRemove={handleRemoveFile}
                   processing={processing}
@@ -351,7 +492,7 @@ function NewInvoicePageContent() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" />
                         <circle className="opacity-75" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="30" strokeDashoffset="10" strokeLinecap="round" />
                       </svg>
-                      <span>Reading the invoice…</span>
+                      <span>Uploading and extracting…</span>
                     </div>
                   </div>
                 )}
@@ -715,6 +856,8 @@ function NewInvoicePageContent() {
     </div>
   );
 }
+
+const toneOptions: Tone[] = ["friendly", "firm", "final_notice"];
 
 export default function NewInvoicePage() {
   return (
