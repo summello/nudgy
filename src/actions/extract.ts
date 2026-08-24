@@ -2,7 +2,8 @@
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateOperationId } from "@/lib/utils";
-import { extractTextFromPDF, extractTextFromImage } from "@/lib/extraction";
+import { extractTextFromPDF } from "@/lib/extraction";
+import { extractInvoiceFromImage, isOpenRouterConfigured } from "@/lib/openrouter/vision";
 import { extractedInvoiceSchema, ExtractedInvoice } from "@/lib/schemas";
 
 export async function extractInvoice(fileId: string) {
@@ -42,39 +43,43 @@ export async function extractInvoice(fileId: string) {
       throw new Error("Failed to get file URL");
     }
 
-    let extractedText = "";
+    let extracted: ExtractedInvoice;
     let extractionMethod = "unknown";
+    let extractedText = "";
 
-    if (fileRecord.mime_type === "application/pdf") {
-      // Try embedded text extraction first
+    if (fileRecord.mime_type.startsWith("image/")) {
+      // Vision-model extraction for photos (replaces the old OCR placeholder).
+      if (!isOpenRouterConfigured()) {
+        throw new Error(
+          "Image invoices need OPENROUTER_API_KEY configured (vision model). Enter the details manually instead."
+        );
+      }
+      const response = await fetch(urlData.signedUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      const mime = fileRecord.mime_type || "image/jpeg";
+      const dataUrl = `data:${mime};base64,${Buffer.from(arrayBuffer).toString("base64")}`;
+
+      extracted = await extractInvoiceFromImage(dataUrl);
+      extractionMethod = "vision";
+    } else {
+      // PDFs: embedded text first; regex-based field parsing on top.
       const response = await fetch(urlData.signedUrl);
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      
+
       const pdfText = await extractTextFromPDF(buffer);
-      
+
       if (pdfText && pdfText.trim().length > 50) {
         extractedText = pdfText;
         extractionMethod = "pdf_text";
+        extracted = await extractInvoiceFields(pdfText, fileRecord.mime_type);
       } else {
-        // Fall back to OCR for image-based PDFs
-        // This would require rendering PDF pages to images first
-        // For now, we'll use a placeholder
-        extractedText = "[PDF requires OCR - not implemented in MVP]";
-        extractionMethod = "pdf_ocr_failed";
+        // Scanned/image-only PDFs need page rendering — out of MVP scope.
+        throw new Error(
+          "This PDF has no selectable text (it may be a scan). Export it as an image or enter the details manually."
+        );
       }
-    } else if (fileRecord.mime_type.startsWith("image/")) {
-      const response = await fetch(urlData.signedUrl);
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      
-      extractedText = await extractTextFromImage(buffer);
-      extractionMethod = "image_ocr";
     }
-
-    // Parse extracted text with LLM (or use structured extraction)
-    // For MVP, we'll use a structured prompt to extract fields
-    const extracted = await extractInvoiceFields(extractedText, fileRecord.mime_type);
 
     // Update file record with extraction results
     await supabase
