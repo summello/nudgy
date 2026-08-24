@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateOperationId } from "@/lib/utils";
 import { generateDraft, validateDraft } from "@/lib/templates";
+import { generateReminderWithLLM, llmAvailable } from "@/lib/openrouter/reminder";
 import { GenerationInput } from "@/lib/schemas";
 import { ConfirmedInvoice, ReminderContext, PaymentMethod, Tone, ReminderDraft } from "@/types";
 
@@ -28,27 +29,33 @@ export async function generateReminder(input: GenerationInput) {
   }
 
   try {
-    // Generate draft using deterministic templates (reliable fallback)
-    const draft = generateDraft(input.tone, input.invoice, input.context, input.paymentMethod);
-    
-    // Validate the draft
-    const errors = validateDraft(draft, input.invoice, input.paymentMethod);
-    
-    if (errors.length > 0) {
-      // Attempt one repair by regenerating
-      const retryDraft = generateDraft(input.tone, input.invoice, input.context, input.paymentMethod);
-      const retryErrors = validateDraft(retryDraft, input.invoice, input.paymentMethod);
-      
-      if (retryErrors.length > 0) {
-        return { 
-          success: false, 
-          error: "Could not generate a safe draft. Please check your inputs.", 
+    // Prefer the LLM (OpenRouter) when configured; deterministic templates are
+    // both the no-key path and the safety fallback (technical plan §7.7).
+    let draft: ReminderDraft;
+    let model: string;
+
+    if (llmAvailable()) {
+      const result = await generateReminderWithLLM(
+        input.tone,
+        input.invoice,
+        input.context,
+        input.paymentMethod,
+        input.daysOverdue
+      );
+      draft = result.draft;
+      model = result.model;
+    } else {
+      draft = generateDraft(input.tone, input.invoice, input.context, input.paymentMethod);
+      const errors = validateDraft(draft, input.invoice, input.paymentMethod);
+      if (errors.length > 0) {
+        return {
+          success: false,
+          error: "Could not generate a safe draft. Please check your inputs.",
           code: "VALIDATION_FAILED",
-          details: retryErrors 
+          details: errors,
         };
       }
-      
-      return { success: true, draft: retryDraft, operationId, model: "template-fallback" };
+      model = "template-v1";
     }
 
     // Save reminder to database
@@ -63,7 +70,7 @@ export async function generateReminder(input: GenerationInput) {
         email_body: draft.emailBody,
         whatsapp_body: draft.whatsappBody,
         context: input.context || {},
-        generation_model: "template-v1",
+        generation_model: model,
         prompt_version: input.promptVersion,
         validation_status: "valid",
       })
@@ -75,12 +82,12 @@ export async function generateReminder(input: GenerationInput) {
       // Continue anyway - draft is valid
     }
 
-    return { 
-      success: true, 
-      draft, 
+    return {
+      success: true,
+      draft,
       reminderId: reminder?.id,
       operationId,
-      model: "template-v1"
+      model
     };
   } catch (error) {
     console.error("Generation error:", error);
