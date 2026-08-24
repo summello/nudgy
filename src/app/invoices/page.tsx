@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
 import { InvoiceCard, InvoiceTableRow } from "@/components/ui";
 import { Card } from "@/components/ui";
@@ -11,6 +12,8 @@ import { Toast, ToastContainer } from "@/components/ui";
 import { Dialog, AlertDialog } from "@/components/ui";
 import { formatAmount, formatDate, getDaysOverdue, generateOperationId } from "@/lib/utils";
 import { requestJson } from "@/lib/http";
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import type { Session } from "@supabase/supabase-js";
 import { Invoice, InvoiceStatus } from "@/types";
 
 interface InvoiceWithExtras extends Omit<Invoice, "lastExportedTone" | "lastExportedAt"> {
@@ -19,8 +22,10 @@ interface InvoiceWithExtras extends Omit<Invoice, "lastExportedTone" | "lastExpo
 }
 
 export default function InvoicesPage() {
+  const router = useRouter();
   const [invoices, setInvoices] = useState<InvoiceWithExtras[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [filter, setFilter] = useState<"overdue" | "paid" | "all">("overdue");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: "success" | "error" | "info" }>>([]);
@@ -69,6 +74,24 @@ export default function InvoicesPage() {
       active = false;
     };
   }, [filter, addToast]);
+
+  // Session display (state updates inside async callbacks only)
+  useEffect(() => {
+    let active = true;
+    try {
+      getSupabaseBrowserClient()
+        .auth.getSession()
+        .then(({ data }: { data: { session: Session | null } }) => {
+          if (active && data.session?.user?.email) setUserEmail(data.session.user.email);
+        })
+        .catch(() => {});
+    } catch {
+      // Supabase not configured — stay signed-out view
+    }
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleContinue = (id: string) => {
     const inv = invoices.find((i) => i.id === id);
@@ -182,7 +205,27 @@ export default function InvoicesPage() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <Link href="/" className="text-h3 text-ink font-semibold">Invoice Nudge</Link>
           <div className="flex items-center gap-4">
-            <span className="text-body-sm text-ink-muted">Signed in as freelancer</span>
+            {userEmail ? (
+              <div className="flex items-center gap-3">
+                <span className="text-body-sm text-ink-muted">{userEmail}</span>
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await getSupabaseBrowserClient().auth.signOut();
+                    } finally {
+                      setUserEmail(null);
+                      router.push("/");
+                    }
+                  }}
+                >
+                  Sign out
+                </Button>
+              </div>
+            ) : (
+              <Link href="/login" className="btn btn-secondary btn-sm">Sign in</Link>
+            )}
           </div>
         </div>
       </header>

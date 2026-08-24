@@ -47,7 +47,7 @@ export default function HomePage() {
             <Link href="/privacy" className="text-body-sm text-ink-muted hover:text-ink transition-colors">
               Privacy
             </Link>
-            <Link href="/invoices" className="btn btn-quiet">Sign in</Link>
+            <Link href="/login" className="btn btn-quiet">Sign in</Link>
           </nav>
         </div>
       </header>
