@@ -1,3 +1,12 @@
+export class HttpError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "HttpError";
+    this.code = code;
+  }
+}
+
 export async function requestJson<T = unknown>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -18,11 +27,10 @@ export async function requestJson<T = unknown>(url: string, init?: RequestInit):
   }
 
   if (!response.ok) {
+    const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
     const message =
-      data && typeof data === "object" && "error" in data && typeof (data as { error?: unknown }).error === "string"
-        ? (data as { error: string }).error
-        : `Request failed (${response.status})`;
-    throw new Error(message);
+      obj && typeof obj.error === "string" ? obj.error : `Request failed (${response.status})`;
+    throw new HttpError(message, typeof obj?.code === "string" ? obj.code : undefined);
   }
 
   if (!data || typeof data !== "object") {

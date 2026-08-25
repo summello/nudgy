@@ -9,3 +9,4 @@ export { ReminderEditor } from "./ReminderEditor";
 export { Toast, ToastContainer } from "./Toast";
 export { Dialog, AlertDialog } from "./Dialog";
 export { InvoiceCard, InvoiceTableRow } from "./InvoiceCard";
+export { ProcessingLog, type ProcStage, type ProcStatus } from "./ProcessingLog";

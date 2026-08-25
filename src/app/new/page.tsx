@@ -13,6 +13,7 @@ import { Card } from "@/components/ui";
 import { Badge } from "@/components/ui";
 import { Toast, ToastContainer } from "@/components/ui";
 import { Dialog, AlertDialog } from "@/components/ui";
+import { ProcessingLog, type ProcStage } from "@/components/ui";
 import { formatAmount, formatDate, parseAmount, validateUPI, validatePaymentUrl, validateE164Phone, getDaysOverdue, getToneRecommendation, getToneRecommendationReason, generateOperationId } from "@/lib/utils";
 import { requestJson } from "@/lib/http";
 import { generateDraft, validateDraft } from "@/lib/templates";
@@ -38,6 +39,22 @@ const initialExtracted: ExtractedInvoice = {
 };
 
 const initialContext: ReminderContext = {};
+
+const STAGE_LABELS = {
+  upload: "Uploading invoice & verifying file",
+  read: "AI is reading the invoice",
+  structure: "Structuring the payment details",
+  ready: "Ready for your check",
+} as const;
+
+function freshStages(): ProcStage[] {
+  return [
+    { key: "upload", label: STAGE_LABELS.upload, status: "pending" },
+    { key: "read", label: STAGE_LABELS.read, status: "pending" },
+    { key: "structure", label: STAGE_LABELS.structure, status: "pending" },
+    { key: "ready", label: STAGE_LABELS.ready, status: "pending" },
+  ];
+}
 
 function NewInvoicePageContent() {
   const router = useRouter();
@@ -69,6 +86,29 @@ function NewInvoicePageContent() {
   const [reminderId, setReminderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<"uploading" | "extracting">("uploading");
+  const [procStages, setProcStages] = useState<ProcStage[]>([]);
+  const [showProcLog, setShowProcLog] = useState(false);
+  const procFileRef = useRef<File | null>(null);
+
+  const markStage = useCallback((key: string, patch: Partial<ProcStage>) => {
+    setProcStages((prev) => prev.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+  }, []);
+
+  const errorCodeMessage = (code?: string, fallback?: string): { detail: string; code?: string } => {
+    const map: Record<string, string> = {
+      FILE_TOO_LARGE: "That file is larger than 10MB.",
+      INVALID_TYPE: "Only PDF, PNG, or JPG files are supported.",
+      SIGNATURE_MISMATCH: "The file content doesn't match its type — try re-exporting it.",
+      UNAUTHORIZED: "Your session expired — please sign in again.",
+      UPLOAD_FAILED: "We couldn't store the file on our side.",
+      DB_ERROR: "We couldn't save the file record on our side.",
+      EXTRACTION_FAILED: "We couldn't read the invoice details from this file.",
+      BAD_REQUEST: "The request was incomplete — please try again.",
+      ROUTE_ERROR: "Something went wrong on our side.",
+      NETWORK: "Connection interrupted — check your internet.",
+    };
+    return { detail: map[code ?? ""] ?? fallback ?? "Something went wrong.", code };
+  };
 
   const addToast = useCallback((message: string, type: "success" | "error" | "info" = "success") => {
     const id = generateOperationId();
@@ -106,47 +146,77 @@ function NewInvoicePageContent() {
     setProcessing(true);
     setStage("uploading");
     setError(null);
+    setShowProcLog(true);
+    procFileRef.current = f;
+
+    const stages = freshStages();
+    setProcStages(stages);
+    const t0 = performance.now();
+    markStage("upload", { status: "active" });
 
     try {
       const formData = new FormData();
       formData.append("file", f);
 
-      const result = await requestJson<{ success: boolean; fileId?: string; error?: string }>("/api/upload", {
+      const result = await requestJson<{ success: boolean; fileId?: string; error?: string; code?: string }>("/api/upload", {
         method: "POST",
         body: formData,
       });
 
       if (!result.success || !result.fileId) {
-        throw new Error(result.error || "Upload failed");
+        const { detail, code } = errorCodeMessage(result.code, result.error);
+        markStage("upload", { status: "error", detail, code, elapsedMs: Math.round(performance.now() - t0) });
+        return null;
       }
 
+      markStage("upload", { status: "done", elapsedMs: Math.round(performance.now() - t0) });
+      markStage("read", { status: "active" });
       setFileId(result.fileId);
       return result.fileId;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Upload failed";
-      setError(message);
-      addToast(message, "error");
+      const errCode = (err as { code?: string }).code;
+      const { detail, code } = errorCodeMessage(errCode, err instanceof Error ? err.message : undefined);
+      markStage("upload", { status: "error", detail, code: code ?? "NETWORK", elapsedMs: Math.round(performance.now() - t0) });
       return null;
     } finally {
       setProcessing(false);
     }
-  }, [addToast]);
+  }, [markStage]);
 
   const extractInvoice = useCallback(async (fId: string) => {
     setProcessing(true);
     setStage("extracting");
     setError(null);
+    setShowProcLog(true);
+
+    const t0 = performance.now();
+    setProcStages((prev) => {
+      const base = prev.some((s) => s.key === "upload") ? prev : freshStages();
+      return base.map((s) =>
+        s.key === "upload"
+          ? { ...s, status: "done" as const }
+          : s.key === "read"
+            ? { ...s, status: "active" as const }
+            : s
+      );
+    });
 
     try {
-      const result = await requestJson<{ success: boolean; extracted?: ExtractedInvoice; error?: string }>("/api/extract", {
+      const result = await requestJson<{ success: boolean; extracted?: ExtractedInvoice; error?: string; code?: string }>("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId: fId }),
       });
 
       if (!result.success || !result.extracted) {
-        throw new Error(result.error || "Extraction failed");
+        const { detail, code } = errorCodeMessage(result.code, result.error);
+        markStage("read", { status: "error", detail, code, elapsedMs: Math.round(performance.now() - t0) });
+        return;
       }
+
+      markStage("read", { status: "done", elapsedMs: Math.round(performance.now() - t0) });
+      markStage("structure", { status: "done" });
+      markStage("ready", { status: "done" });
 
       const extractedData = result.extracted;
       setExtracted(extractedData);
@@ -164,15 +234,16 @@ function NewInvoicePageContent() {
         dueDate: extractedData.dueDate.value || "",
       });
 
-      setStep(2);
+      // Let the "ready" state register before the step transition.
+      setTimeout(() => setStep(2), 450);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Extraction failed";
-      setError(message);
-      addToast(message, "error");
+      const errCode = (err as { code?: string }).code;
+      const { detail, code } = errorCodeMessage(errCode, err instanceof Error ? err.message : undefined);
+      markStage("read", { status: "error", detail, code: code ?? "NETWORK", elapsedMs: Math.round(performance.now() - t0) });
     } finally {
       setProcessing(false);
     }
-  }, [addToast]);
+  }, [markStage]);
 
   const handleFileSelectWithUpload = useCallback(async (f: File) => {
     setFile(f);
@@ -498,9 +569,15 @@ function NewInvoicePageContent() {
 
   const startManualEntry = useCallback(() => {
     setError(null);
+    setShowProcLog(false);
     setConfirmed({ clientName: "", amountMinor: 0, currency: "INR", dueDate: "" });
     setStep(2);
   }, []);
+
+  const handleRetryExtract = useCallback(() => {
+    if (!fileId) return;
+    extractInvoice(fileId);
+  }, [fileId, extractInvoice]);
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
@@ -540,16 +617,12 @@ function NewInvoicePageContent() {
                   processing={processing}
                   maxSizeMB={10}
                 />
-                {processing && (
-                  <div className="text-center text-body text-ink-muted" role="status" aria-live="polite">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                      <svg className="animate-spin h-5 w-5 text-primary" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" />
-                        <circle className="opacity-75" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="30" strokeDashoffset="10" strokeLinecap="round" />
-                      </svg>
-                      <span>{stage === "uploading" ? "Reading the invoice…" : "Checking payment details…"}</span>
-                    </div>
-                  </div>
+                {showProcLog && procStages.length > 0 && (
+                  <ProcessingLog
+                    stages={procStages}
+                    onRetry={fileId ? handleRetryExtract : undefined}
+                    onManualEntry={startManualEntry}
+                  />
                 )}
               </div>
             </Card>
