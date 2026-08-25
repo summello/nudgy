@@ -60,6 +60,7 @@ export type ConfirmedInvoice = z.infer<typeof confirmedInvoiceSchema>;
 
 export const reminderContextSchema = z.object({
   contactName: z.string().max(100).optional(),
+  contactPhoneE164: z.string().max(20).optional(),
   relationship: z.string().max(200).optional(),
   priorReminderCount: z.number().int().min(0).max(10).optional(),
   priorReminderDate: z.string().optional(),

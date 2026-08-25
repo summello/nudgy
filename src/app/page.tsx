@@ -1,42 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import { DropZone } from "@/components/ui";
 
 export default function HomePage() {
   const router = useRouter();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleFileSelect = (file: File) => {
-    setError(null);
-    const allowedTypes = ["application/pdf", "image/png", "image/jpeg"];
-    if (!allowedTypes.includes(file.type)) {
-      setError("Please upload a PDF, PNG, or JPG file.");
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setError("File size must be less than 10MB.");
-      return;
-    }
-    setSelectedFile(file);
-  };
-
-  const handleRemove = () => {
-    setSelectedFile(null);
-    setError(null);
-  };
-
-  const handleContinue = () => {
-    if (selectedFile) {
-      // The upload itself starts on /new; carry only the display name across.
-      router.push(`/new?file=${encodeURIComponent(selectedFile.name)}`);
-    }
-  };
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -91,24 +60,33 @@ export default function HomePage() {
               </p>
             </div>
 
-            <div className="card-elevated p-6 lg:p-8">
-              <DropZone
-                onFileSelect={handleFileSelect}
-                selectedFile={selectedFile}
-                onRemove={handleRemove}
-                processing={processing}
-                maxSizeMB={10}
-              />
-              {error && (
-                <div className="mt-4 p-3 bg-danger-soft border border-danger text-danger rounded-lg text-body-sm" role="alert">
-                  {error}
-                </div>
-              )}
-              {selectedFile && !processing && (
-                <Button className="mt-4 w-full" size="lg" onClick={handleContinue}>
-                  Continue — Check details
-                </Button>
-              )}
+            <div className="card-elevated p-6 lg:p-8 space-y-5">
+              <div className="space-y-1">
+                <h2 className="text-h3 text-ink">Start with an overdue invoice</h2>
+                <p className="text-body-sm text-ink-muted">
+                  PDF, PNG, or JPG · Up to 10MB · Your invoice stays private
+                </p>
+              </div>
+              <ul className="space-y-2.5 text-body-sm text-ink-muted">
+                <li className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary flex-shrink-0" aria-hidden="true" />
+                  We read the details — you confirm them
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary flex-shrink-0" aria-hidden="true" />
+                  Pick a tone: Friendly, Firm, or Final Notice
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary flex-shrink-0" aria-hidden="true" />
+                  Copy the email or open WhatsApp — you always hit send
+                </li>
+              </ul>
+              <Button className="w-full" size="lg" onClick={() => router.push("/new")}>
+                Nudge an invoice
+              </Button>
+              <p className="text-caption text-ink-muted text-center">
+                Takes about 10 seconds. No account needed to try.
+              </p>
             </div>
           </div>
         </div>

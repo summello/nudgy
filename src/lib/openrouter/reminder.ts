@@ -1,4 +1,5 @@
-import { chatJson, isOpenRouterConfigured, getReminderModel } from "./client";
+import { chatJson, anyProviderConfigured, chatChainHasProviderOtherThan } from "./client";
+import { formatAmount, formatDateLong } from "@/lib/utils";
 import { generateDraft, validateDraft } from "@/lib/templates";
 import { ConfirmedInvoice, ReminderContext, PaymentMethod, ReminderDraft, Tone } from "@/types";
 
@@ -39,8 +40,10 @@ client_name: ${invoice.clientName}
 contact_name: ${context?.contactName || "(none)"}
 invoice_number: ${invoice.invoiceNumber || "(none)"}
 amount: ${invoice.currency} ${(invoice.amountMinor / 100).toFixed(2)}
+amount_display: use exactly this string for the amount wherever it appears: "${formatAmount(invoice.amountMinor, invoice.currency)}"
 issue_date: ${invoice.issueDate || "(none)"}
 due_date: ${invoice.dueDate}
+due_date_display: use exactly this string for the due date wherever it appears: "${formatDateLong(invoice.dueDate)}"
 days_overdue: ${daysOverdue}
 </confirmed_facts>
 
@@ -79,9 +82,85 @@ function extraChecks(draft: ReminderDraft, paymentMethod?: PaymentMethod): strin
   return errors;
 }
 
+const FORBIDDEN = [/legal action/i, /\bcourt\b/i, /\blawyer\b/i, /\battorney\b/i, /collections/i, /late fee/i, /penalt/i, /\binterest\b/i, /suspend/i, /terminat/i];
+
 /**
- * Generates a reminder via OpenRouter with deterministic safeguards:
- * schema + fact checks, one repair attempt, then template fallback.
+ * Fact-consistency check tolerant of natural LLM phrasing: accepts both
+ * "25 June 2026" and "June 25, 2026" / ISO dates, digit-grouped amounts with
+ * or without paise, and case-insensitive identifier matching. The strict
+ * template validator (validateDraft) remains for the deterministic path.
+ */
+function factCheckDraft(draft: ReminderDraft, invoice: ConfirmedInvoice, paymentMethod?: PaymentMethod): string[] {
+  const errors: string[] = [];
+  const body = draft.emailBody;
+  const all = `${draft.emailSubject}\n${body}\n${draft.whatsappBody}`;
+  const digits = (s: string) => s.replace(/\D/g, "");
+
+  const subjectRef = invoice.invoiceNumber || invoice.clientName;
+  if (!draft.emailSubject.toLowerCase().includes(subjectRef.toLowerCase())) {
+    errors.push("Subject must reference the invoice number or client.");
+  }
+
+  const major = String(Math.floor(invoice.amountMinor / 100));
+  const minorDigits = digits(String(invoice.amountMinor));
+  const bodyDigits = digits(body);
+  if (!(bodyDigits.includes(minorDigits) || bodyDigits.includes(major))) {
+    errors.push("Body must state the confirmed amount.");
+  }
+
+  const [y, m, d] = invoice.dueDate.split("-");
+  const MONTHS = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const ordinal = `${Number(d)}${["th", "st", "nd", "rd"][((Number(d) % 100) - 20) % 10] || "th"}`;
+  const dueVariants = [
+    invoice.dueDate, // 2026-06-25
+    invoice.dueDate.replaceAll("-", "/"), // 2026/06/25
+    `${Number(d)} ${MONTHS[Number(m)]} ${y}`, // 25 June 2026
+    `${MONTHS[Number(m)]} ${Number(d)}, ${y}`, // June 25, 2026
+    `${ordinal} ${MONTHS[Number(m)]} ${y}`, // 25th June 2026
+    `${d}/${m}/${y}`, // 25/06/2026
+  ];
+  if (!dueVariants.some((v) => body.includes(v))) {
+    errors.push("Body must state the confirmed due date.");
+  }
+
+  if (invoice.invoiceNumber && !all.toLowerCase().includes(invoice.invoiceNumber.toLowerCase())) {
+    errors.push("Draft must reference the invoice number.");
+  }
+
+  if (paymentMethod?.kind === "upi" && !all.toLowerCase().includes(paymentMethod.value.toLowerCase())) {
+    errors.push("Draft must include the UPI ID exactly.");
+  }
+
+  for (const pattern of FORBIDDEN) {
+    if (pattern.test(all)) errors.push(`Forbidden content present: ${pattern.source}`);
+  }
+
+  if (draft.whatsappBody.length > 1600) errors.push("WhatsApp body exceeds 1600 characters.");
+
+  return [...errors, ...extraChecks(draft, paymentMethod)];
+}
+
+/** Removes reasoning-model artifacts and stray control text from a field. */
+function clean(value: unknown): string {
+  return String(value ?? "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<\/?(think|reasoning)>/gi, "")
+    .trim();
+}
+
+function toDraft(parsed: Record<string, unknown>): ReminderDraft {
+  return {
+    emailSubject: clean(parsed.emailSubject),
+    emailBody: clean(parsed.emailBody),
+    whatsappBody: clean(parsed.whatsappBody),
+  };
+}
+
+/**
+ * Generates a reminder via the LLM provider chain with deterministic
+ * safeguards: schema + fact checks, one repair attempt on the next provider,
+ * and — no matter what the providers do — a guaranteed usable draft from the
+ * deterministic templates (technical plan §7.7). Never throws.
  */
 export async function generateReminderWithLLM(
   tone: Tone,
@@ -93,41 +172,56 @@ export async function generateReminderWithLLM(
   const overdueDays = daysOverdue ?? 0;
   const userPrompt = buildUserPrompt(invoice, tone, overdueDays, context, paymentMethod);
 
-  let parsed = await chatJson({ system: SYSTEM_PROMPT, user: userPrompt, maxTokens: 900 });
+  try {
+    const { data: parsed, provider } = await chatJson({ system: SYSTEM_PROMPT, user: userPrompt, maxTokens: 900 });
 
-  let candidate: ReminderDraft = {
-    emailSubject: String(parsed.emailSubject ?? ""),
-    emailBody: String(parsed.emailBody ?? ""),
-    whatsappBody: String(parsed.whatsappBody ?? ""),
-  };
+    let candidate = toDraft(parsed);
+    let errors = factCheckDraft(candidate, invoice, paymentMethod);
 
-  let errors = [...validateDraft(candidate, invoice, paymentMethod), ...extraChecks(candidate, paymentMethod)];
-
-  // One bounded repair attempt, per the technical plan.
-  if (errors.length > 0) {
-    const repairPrompt = `${userPrompt}
+    // One bounded repair — on the NEXT provider, since the first one already
+    // produced invalid output. With a single provider configured there is no
+    // alternative to try; fall straight through to templates.
+    if (errors.length > 0) {
+      const firstProvider = provider.split("/")[0];
+      const hasAlternative = chatChainHasProviderOtherThan(firstProvider);
+      if (!hasAlternative) {
+        console.warn(`[llm] ${provider} draft failed checks: ${errors.join("; ")}`);
+        console.warn(`[llm] rejected body preview: ${candidate.emailBody.slice(0, 220)}`);
+        return { draft: generateDraft(tone, invoice, context, paymentMethod), model: "template-fallback" };
+      }
+      const repairPrompt = `${userPrompt}
 
 Your previous attempt violated these checks:
 ${errors.map((e) => `- ${e}`).join("\n")}
 
-Return a corrected JSON object now.`;
-    parsed = await chatJson({ system: SYSTEM_PROMPT, user: repairPrompt, maxTokens: 900 });
-    candidate = {
-      emailSubject: String(parsed.emailSubject ?? ""),
-      emailBody: String(parsed.emailBody ?? ""),
-      whatsappBody: String(parsed.whatsappBody ?? ""),
-    };
-    errors = [...validateDraft(candidate, invoice, paymentMethod), ...extraChecks(candidate, paymentMethod)];
-  }
+Return a corrected JSON object now. Output only the JSON object.`;
+      const { data: repaired, provider: repairProvider } = await chatJson({
+        system: SYSTEM_PROMPT,
+        user: repairPrompt,
+        maxTokens: 900,
+        excludeProvider: firstProvider,
+      });
+      candidate = toDraft(repaired);
+      errors = factCheckDraft(candidate, invoice, paymentMethod);
+      if (errors.length === 0) {
+        return { draft: candidate, model: repairProvider };
+      }
+    }
 
-  if (errors.length > 0) {
-    // Deterministic templates are the reliable fallback (technical plan §7.7).
+    if (errors.length > 0) {
+      console.warn("[llm] draft failed validation after repair — using template fallback");
+      return { draft: generateDraft(tone, invoice, context, paymentMethod), model: "template-fallback" };
+    }
+
+    return { draft: candidate, model: provider };
+  } catch (err) {
+    // Provider outage/timeout must never block the user: fall back to the
+    // deterministic templates.
+    console.warn(`[llm] generation unavailable (${err instanceof Error ? err.message : err}) — template fallback`);
     return { draft: generateDraft(tone, invoice, context, paymentMethod), model: "template-fallback" };
   }
-
-  return { draft: candidate, model: `openrouter/${getReminderModel()}` };
 }
 
 export function llmAvailable() {
-  return isOpenRouterConfigured();
+  return anyProviderConfigured();
 }

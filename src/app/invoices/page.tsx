@@ -94,11 +94,8 @@ export default function InvoicesPage() {
   }, []);
 
   const handleContinue = (id: string) => {
-    const inv = invoices.find((i) => i.id === id);
-    if (inv) {
-      addToast(`Continuing ${inv.clientName}...`);
-      // Navigate to /new with invoice data
-    }
+    // Reopens the invoice in the drafting flow: facts restored, tone step next.
+    router.push(`/new?invoice=${id}`);
   };
 
   const handleMarkPaid = (id: string) => {

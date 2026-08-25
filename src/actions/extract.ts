@@ -48,10 +48,10 @@ export async function extractInvoice(fileId: string) {
     let extractedText = "";
 
     if (fileRecord.mime_type.startsWith("image/")) {
-      // Vision-model extraction for photos (replaces the old OCR placeholder).
+      // Vision-model extraction for photos.
       if (!isOpenRouterConfigured()) {
         throw new Error(
-          "Image invoices need OPENROUTER_API_KEY configured (vision model). Enter the details manually instead."
+          "No AI provider configured for photo extraction (set OPENROUTER_API_KEY or NVIDIA_* in .env.local). Enter the details manually instead."
         );
       }
       const response = await fetch(urlData.signedUrl);
@@ -59,8 +59,9 @@ export async function extractInvoice(fileId: string) {
       const mime = fileRecord.mime_type || "image/jpeg";
       const dataUrl = `data:${mime};base64,${Buffer.from(arrayBuffer).toString("base64")}`;
 
-      extracted = await extractInvoiceFromImage(dataUrl);
-      extractionMethod = "vision";
+      const vision = await extractInvoiceFromImage(dataUrl);
+      extracted = vision.extracted;
+      extractionMethod = `vision:${vision.provider}`;
     } else {
       // PDFs: embedded text first; regex-based field parsing on top.
       const response = await fetch(urlData.signedUrl);

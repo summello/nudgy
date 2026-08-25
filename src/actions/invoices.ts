@@ -35,7 +35,8 @@ export async function getInvoices(filter: "overdue" | "paid" | "all" = "overdue"
   interface ExportRecord {
     reminder_id: string;
     created_at: string;
-    reminders: { tone: string }[];
+    // PostgREST returns a many-to-one embed as an object, not an array.
+    reminders: { tone: string } | null;
   }
   let exportsMap: Record<string, ExportRecord> = {};
   
@@ -57,7 +58,7 @@ export async function getInvoices(filter: "overdue" | "paid" | "all" = "overdue"
         .order("created_at", { ascending: false });
       
       if (exports) {
-        exports.forEach(exp => {
+        (exports as unknown as ExportRecord[]).forEach(exp => {
           const invId = reminderInvoiceMap[exp.reminder_id];
           if (invId && !exportsMap[invId]) {
             exportsMap[invId] = exp;
@@ -67,10 +68,25 @@ export async function getInvoices(filter: "overdue" | "paid" | "all" = "overdue"
     }
   }
 
+  // Map DB snake_case rows to the camelCase shape the UI components expect.
   const enrichedInvoices = invoices?.map(inv => ({
-    ...inv,
-    lastExportedTone: exportsMap[inv.id]?.reminders?.[0]?.tone || null,
-    lastExportedAt: exportsMap[inv.id]?.created_at || null,
+    id: inv.id,
+    ownerId: inv.owner_id,
+    clientName: inv.client_name,
+    contactName: inv.contact_name ?? undefined,
+    contactPhoneE164: inv.contact_phone_e164 ?? undefined,
+    invoiceNumber: inv.invoice_number ?? undefined,
+    amountMinor: inv.amount_minor,
+    currency: inv.currency,
+    issueDate: inv.issue_date ?? undefined,
+    dueDate: inv.due_date,
+    status: inv.status,
+    confirmedAt: inv.confirmed_at ?? undefined,
+    paidAt: inv.paid_at ?? undefined,
+    createdAt: inv.created_at,
+    updatedAt: inv.updated_at,
+    lastExportedTone: exportsMap[inv.id]?.reminders?.tone ?? null,
+    lastExportedAt: exportsMap[inv.id]?.created_at ?? null,
   })) || [];
 
   return { success: true, invoices: enrichedInvoices };
