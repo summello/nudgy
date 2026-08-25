@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { StepIndicator } from "@/components/ui";
@@ -68,6 +68,7 @@ function NewInvoicePageContent() {
   const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const [reminderId, setReminderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stage, setStage] = useState<"uploading" | "extracting">("uploading");
 
   const addToast = useCallback((message: string, type: "success" | "error" | "info" = "success") => {
     const id = generateOperationId();
@@ -103,6 +104,7 @@ function NewInvoicePageContent() {
 
   const uploadFile = useCallback(async (f: File) => {
     setProcessing(true);
+    setStage("uploading");
     setError(null);
 
     try {
@@ -132,6 +134,7 @@ function NewInvoicePageContent() {
 
   const extractInvoice = useCallback(async (fId: string) => {
     setProcessing(true);
+    setStage("extracting");
     setError(null);
 
     try {
@@ -450,6 +453,55 @@ function NewInvoicePageContent() {
 
   const canGenerate = confirmed && step === 3;
 
+  // Resume an existing invoice from the dashboard ("Continue") — restore its
+  // confirmed facts and drop the user at tone selection.
+  const resumeId = searchParams.get("invoice");
+  useEffect(() => {
+    if (!resumeId || step !== 1 || processing) return;
+    let active = true;
+    requestJson<{ success: boolean; invoice?: Record<string, unknown>; error?: string }>(
+      `/api/invoices/${resumeId}`
+    )
+      .then((result) => {
+        if (!active) return;
+        const inv = result.invoice as Record<string, string | number | null> | undefined;
+        if (!result.success || !inv) {
+          setError(result.error || "Could not load that invoice. Start a new nudge instead.");
+          return;
+        }
+        setConfirmed({
+          clientName: String(inv.client_name ?? ""),
+          contactName: (inv.contact_name as string) || undefined,
+          contactPhoneE164: (inv.contact_phone_e164 as string) || undefined,
+          invoiceNumber: (inv.invoice_number as string) || undefined,
+          amountMinor: Number(inv.amount_minor ?? 0),
+          currency: String(inv.currency ?? "INR"),
+          issueDate: (inv.issue_date as string) || undefined,
+          dueDate: String(inv.due_date ?? ""),
+        });
+        setStep(3);
+      })
+      .catch(() => {
+        if (active) setError("Could not load that invoice. Start a new nudge instead.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [resumeId, step, processing]);
+
+  // Step transitions: return to top and move focus to the step heading (a11y).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+    headingRef.current?.focus();
+  }, [step]);
+
+  const startManualEntry = useCallback(() => {
+    setError(null);
+    setConfirmed({ clientName: "", amountMinor: 0, currency: "INR", dueDate: "" });
+    setStep(2);
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
       <header className="border-b border-border bg-surface px-6 py-4">
@@ -464,16 +516,22 @@ function NewInvoicePageContent() {
           <StepIndicator currentStep={step} totalSteps={4} steps={STEPS} className="mb-8" />
 
           {error && (
-            <div className="mb-6 p-4 bg-danger-soft border border-danger text-danger rounded-lg text-body-sm" role="alert">
-              {error}
+            <div className="mb-6 p-4 bg-danger-soft border border-danger text-danger rounded-lg text-body-sm space-y-3" role="alert">
+              <p>{error}</p>
+              {step === 1 && !processing && (
+                <Button variant="secondary" size="sm" onClick={startManualEntry}>
+                  Enter details manually
+                </Button>
+              )}
             </div>
           )}
 
+          <div key={step} className="animate-fade-in">
           {/* Step 1: Upload */}
           {step === 1 && (
             <Card className="max-w-xl mx-auto">
               <div className="p-6 space-y-4">
-                <h2 className="text-h2 text-ink">Upload invoice</h2>
+                <h2 ref={headingRef} tabIndex={-1} className="text-h2 text-ink focus:outline-none">Upload invoice</h2>
                 <p className="text-body text-ink-muted">PDF, PNG, or JPG · Up to 10MB · Your invoice stays private</p>
                 <DropZone
                   onFileSelect={handleFileSelectWithUpload}
@@ -483,13 +541,13 @@ function NewInvoicePageContent() {
                   maxSizeMB={10}
                 />
                 {processing && (
-                  <div className="text-center text-body text-ink-muted">
+                  <div className="text-center text-body text-ink-muted" role="status" aria-live="polite">
                     <div className="flex items-center justify-center gap-2 mb-2">
                       <svg className="animate-spin h-5 w-5 text-primary" viewBox="0 0 24 24" aria-hidden="true">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" />
                         <circle className="opacity-75" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="30" strokeDashoffset="10" strokeLinecap="round" />
                       </svg>
-                      <span>Uploading and extracting…</span>
+                      <span>{stage === "uploading" ? "Reading the invoice…" : "Checking payment details…"}</span>
                     </div>
                   </div>
                 )}
@@ -532,7 +590,7 @@ function NewInvoicePageContent() {
 
               <div className="card p-6 space-y-6 sticky top-24">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-h3 text-ink">Check details</h3>
+                  <h3 ref={headingRef} tabIndex={-1} className="text-h3 text-ink focus:outline-none">Check details</h3>
                   {confirmed && (
                     <Badge variant={daysOverdue > 0 ? "overdue" : daysOverdue === 0 ? "overdue" : "paid"}>
                       {daysOverdue > 0 ? `${daysOverdue} days overdue` : daysOverdue === 0 ? "Due today" : "Future date"}
@@ -617,7 +675,7 @@ function NewInvoicePageContent() {
           {step === 3 && confirmed && (
             <div className="max-w-3xl mx-auto space-y-6">
               <div>
-                <h2 className="text-h2 text-ink">Choose tone</h2>
+                <h2 ref={headingRef} tabIndex={-1} className="text-h2 text-ink focus:outline-none">Choose tone</h2>
                 <p className="text-body text-ink-muted mt-1">How firm should the reminder be?</p>
               </div>
 
@@ -807,6 +865,11 @@ function NewInvoicePageContent() {
                 onCopyEmail={handleCopyEmail}
                 onOpenWhatsApp={handleOpenWhatsApp}
                 onCopyWhatsApp={handleCopyWhatsApp}
+                onWhatsAppNumberChange={(v) => {
+                  setContext((prev) => ({ ...prev, contactPhoneE164: v }));
+                  setPhoneError("");
+                  addToast("Number added — you can open WhatsApp now");
+                }}
                 regenerating={generating}
                 copying={copying}
                 whatsappNumber={context.contactPhoneE164}
@@ -837,6 +900,7 @@ function NewInvoicePageContent() {
               </Button>
             </div>
           )}
+          </div>
         </div>
       </main>
 

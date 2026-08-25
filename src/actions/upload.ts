@@ -2,9 +2,6 @@
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { generateOperationId, formatFileSize } from "@/lib/utils";
-import { uploadValidationSchema } from "@/lib/schemas";
-import { headers } from "next/headers";
-import { v4 as uuidv4 } from "uuid";
 
 const ALLOWED_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -86,7 +83,7 @@ export async function uploadInvoice(formData: FormData) {
   const { data: fileRecord, error: dbError } = await supabase
     .from("invoice_files")
     .insert({
-      id: operationId,
+      id: crypto.randomUUID(),
       owner_id: ownerId,
       file_name: file.name,
       file_size: file.size,

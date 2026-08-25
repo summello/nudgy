@@ -17,6 +17,7 @@ export interface ReminderEditorProps {
   onCopyEmail: () => void;
   onOpenWhatsApp: () => void;
   onCopyWhatsApp: () => void;
+  onWhatsAppNumberChange?: (value: string) => void;
   regenerating?: boolean;
   copying?: boolean;
   whatsappNumber?: string;
@@ -39,6 +40,7 @@ export function ReminderEditor({
   onCopyEmail,
   onOpenWhatsApp,
   onCopyWhatsApp,
+  onWhatsAppNumberChange,
   regenerating,
   copying,
   whatsappNumber,
@@ -47,6 +49,9 @@ export function ReminderEditor({
   const [activeTab, setActiveTab] = useState<"email" | "whatsapp">("email");
   const [emailEdited, setEmailEdited] = useState(false);
   const [whatsappEdited, setWhatsAppEdited] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState("");
+  const [phoneHint, setPhoneHint] = useState(false);
+  const [subjectCopied, setSubjectCopied] = useState(false);
 
   const handleEmailSubjectChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onEmailSubjectChange(e.target.value);
@@ -126,14 +131,33 @@ export function ReminderEditor({
 
       <div role="tabpanel" id="email-panel" aria-labelledby="email-tab" hidden={activeTab !== "email"}>
         <div className="space-y-4">
-          <Textarea
-            label="Subject"
-            value={emailSubject}
-            onChange={handleEmailSubjectChange}
-            placeholder="Subject line"
-            rows={1}
-            className="min-h-[44px]"
-          />
+          <div>
+            <div className="flex items-end justify-between gap-2">
+              <label htmlFor="email-subject" className="label">Subject</label>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(emailSubject);
+                    setSubjectCopied(true);
+                    setTimeout(() => setSubjectCopied(false), 2000);
+                  } catch { /* clipboard unavailable — field is selectable */ }
+                }}
+                className="btn btn-quiet btn-sm !min-h-0 py-1"
+                aria-label="Copy subject only"
+              >
+                {subjectCopied ? "Copied" : "Copy subject"}
+              </button>
+            </div>
+            <textarea
+              id="email-subject"
+              value={emailSubject}
+              onChange={handleEmailSubjectChange}
+              placeholder="Subject line"
+              rows={1}
+              className="input"
+            />
+          </div>
           <Textarea
             label="Body"
             value={emailBody}
@@ -201,6 +225,36 @@ export function ReminderEditor({
               Regenerate
             </Button>
           </div>
+          {!whatsappNumber && onWhatsAppNumberChange && (
+            <div className="p-3 bg-surface-subtle rounded-lg border border-border space-y-2">
+              <p className="text-body-sm text-ink-muted">
+                Add the client's WhatsApp number to open this draft pre-filled:
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  value={phoneDraft}
+                  onChange={(e) => { setPhoneDraft(e.target.value); setPhoneHint(false); }}
+                  placeholder="+91 98765 43210"
+                  aria-label="Client WhatsApp number"
+                  className="input flex-1"
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const digits = phoneDraft.replace(/[^\d]/g, "");
+                    if (digits.length < 10) { setPhoneHint(true); return; }
+                    onWhatsAppNumberChange(`+${digits}`);
+                  }}
+                >
+                  Use number
+                </Button>
+              </div>
+              {phoneHint && (
+                <p className="error-text" role="alert">Enter a valid number with country code, e.g. +91 98765 43210.</p>
+              )}
+            </div>
+          )}
           {whatsappEdited && (
             <p className="text-body-sm text-accent flex items-center gap-1">
               <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
